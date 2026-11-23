@@ -1,0 +1,20 @@
+:root { color-scheme: dark; font-family: system-ui, sans-serif; color: #f6f4ff; background: #10121b; }
+* { box-sizing: border-box; }
+body { margin: 0; }
+main { max-width: 740px; margin: auto; padding: max(20px, env(safe-area-inset-top)) max(16px, env(safe-area-inset-right)) max(20px, env(safe-area-inset-bottom)) max(16px, env(safe-area-inset-left)); }
+header { display: flex; align-items: center; justify-content: space-between; gap: 12px; margin-bottom: 16px; }
+h1 { font-size: clamp(1.45rem, 6vw, 2.2rem); margin: 0; letter-spacing: -.035em; }
+.connection { font-weight: 650; font-size: .9rem; color: #ffda8d; min-width: max-content; border: 1px solid #725d3f; border-radius: 100px; padding: 5px 10px; }
+.connection[data-mode="live"] { color: #91f4d2; border-color: #386e5d; }
+figure { margin: 0; background: #1b2031; border: 1px solid #3b425b; border-radius: 14px; overflow: hidden; }
+canvas { display: block; width: 100%; height: auto; image-rendering: pixelated; }
+figcaption { display: flex; justify-content: space-around; flex-wrap: wrap; gap: 6px; padding: 10px 8px; font-size: .875rem; color: #d1d4e7; border-top: 1px solid #3b425b; }
+section { display: grid; gap: 8px; margin-top: 14px; }
+article { display: grid; grid-template-columns: 12px 1fr; column-gap: 10px; padding: 11px 13px; background: #1b2031; border: 1px solid #343a52; border-radius: 9px; overflow-wrap: anywhere; }
+article h2 { font-size: 1rem; margin: 0; }
+article p { color: #d1d4e7; font-size: .9rem; margin: 4px 0 0; }
+article code { display: block; margin-top: 4px; color: #bbbafc; font-size: .85rem; }
+.swatch { width: 10px; height: 10px; margin-top: 5px; background: var(--color); box-shadow: 2px 2px #090b12; }
+footer { display: flex; align-items: center; justify-content: space-between; gap: 10px; color: #b7bdd5; font-size: .875rem; }
+button { min-height: 44px; border: 1px solid #6d76a2; background: #1c2944; color: #f6f4ff; border-radius: 8px; padding: 6px 10px; font: inherit; }
+button:focus-visible { outline: 2px solid #a6eaff; outline-offset: 2px; }
