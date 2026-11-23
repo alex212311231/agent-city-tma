@@ -185,3 +185,59 @@ h1 { font-size: clamp(1.35rem, 4.5vw, 2rem); letter-spacing: -.055em; line-heigh
 @media (prefers-reduced-motion: reduce) {
   *, *::before, *::after { scroll-behavior: auto !important; }
 }
+
+.dashboard-controls { display:flex; align-items:center; gap:6px; flex-wrap:wrap; justify-content:flex-end; }
+.primary-button, .outline-button, .agent-focus {
+  border-radius:7px; min-height:36px; padding:5px 9px; font-size:.8rem;
+}
+.primary-button { color:#e0fff8; border:1px solid #79ebca92; background:#18594f; font-weight:650; }
+.primary-button:disabled { opacity:.56; cursor:wait; }
+.outline-button, .agent-focus { border:1px solid #98b7f156; background:#a4bfef12; }
+.agent-focus { display:block; width:100%; margin-top:6px; min-height:34px; }
+.agent-focus[aria-pressed="true"] { color:#d9ffed; border-color:#79ebcab0; background:#1d4c49; }
+.agent-inspection {
+  display:flex; gap:12px; align-items:center; justify-content:space-between;
+  border:1px solid #79ebca54; border-radius:7px; background:#17304a; padding:8px 10px; margin-bottom:7px;
+  font-size:.87rem; overflow-wrap:anywhere;
+}
+.agent-inspection strong { color:#aaf3dd; }
+.agent-inspection p { color:#d1def6; margin-top:3px; font-size:.76rem; }
+.agent-inspection button { white-space:nowrap; }
+.task-receipt { padding:6px 7px; margin:0 0 7px; font-size:.82rem; color:#b7f7e3; }
+.district { width:auto; max-width:min(370px, calc(100% - 38px)); align-items:center; }
+.district .overview { white-space:nowrap; }
+.task-dialog {
+  width:min(460px, calc(100% - 26px)); max-height:calc(100dvh - 24px); overflow:auto;
+  border:1px solid #8fdac086; border-radius:12px; padding:16px; color:#f1f5ff;
+  background:#111f36; box-shadow:0 18px 55px #020612ce;
+}
+.task-dialog::backdrop { background:#040a18b0; }
+.task-dialog form { display:grid; justify-items:stretch; gap:9px; }
+.task-heading { display:flex; justify-content:space-between; align-items:center; }
+.task-heading h2 { font-size:1.19rem; }
+.task-heading .outline-button { min-width:40px; font-size:1.2rem; }
+.task-dialog label { font-size:.88rem; }
+.task-dialog select, .task-dialog textarea {
+  color:inherit; font:inherit; border:1px solid #7192b6; border-radius:7px; background:#09152a; padding:8px;
+}
+.task-dialog textarea { resize:vertical; min-height:95px; }
+.task-dialog #task-message { color:#ffcc9f; font-size:.86rem; }
+.task-dialog #submit-task { min-height:44px; }
+@media (max-width:699px) {
+  .district {
+    align-self:flex-start; margin:2px max(12px,env(safe-area-inset-right,0px)) 4px max(12px,env(safe-area-inset-left,0px));
+    padding:7px 9px; gap:8px; max-width:calc(100% - 24px);
+  }
+  .district h2 { font-size:.93rem; margin:2px 0 0; }
+  .district p { display:none; }
+  .district .overview { min-height:40px; font-size:.72rem; }
+  .dashboard-controls .demo-button, .dashboard-controls .primary-button { min-height:42px; }
+  .app[data-focused] .world-help, .app[data-focused] .agent small { display:none; }
+  .app[data-focused] .dashboard { padding:8px; }
+  .app[data-focused] .districts { margin-bottom:5px; }
+  .agent-focus { min-height:40px; padding-inline:4px; font-size:.73rem; }
+}
+@media (max-height:520px) and (orientation:landscape) {
+  .district { position:static; margin-top:0; }
+  .district p, .app[data-focused] .agent small { display:none; }
+}

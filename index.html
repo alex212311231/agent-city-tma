@@ -5,7 +5,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
   <meta name="theme-color" content="#080e20">
   <title>Город агентов</title>
-  <link rel="stylesheet" href="./office.css?v=61c123c7086c">
+  <link rel="stylesheet" href="./office.css?v=3473c388d5a9">
   <script type="importmap">
     {
       "imports": {
@@ -16,10 +16,10 @@
   </script>
   <script defer src="https://telegram.org/js/telegram-web-app.js"></script>
   <script defer src="./config.js"></script>
-  <script defer src="./office.js?v=4e84f00839ed"></script>
+  <script defer src="./office.js?v=fe6ab12b5363"></script>
 </head>
 <body>
-  <main class="app">
+  <main class="app" id="app">
     <div id="world" class="world">
       <canvas id="city" aria-label="Трёхмерная карта города. Перетаскивание вращает камеру, щипок или колёсико меняет масштаб."></canvas>
       <div id="markers" class="markers"></div>
@@ -45,7 +45,7 @@
 
     <div class="bottom">
       <nav class="districts" aria-label="Районы города">
-        <button type="button" data-district="hq" aria-pressed="false" style="--district-color:#ffc779">Байтерек</button>
+        <button type="button" data-district="hq" aria-pressed="false" style="--district-color:#ffcc91">Таймс-сквер</button>
         <button type="button" data-district="moex" aria-pressed="false" style="--district-color:#72aaff">MOEX</button>
         <button type="button" data-district="grants" aria-pressed="false" style="--district-color:#67f5b0">Радар</button>
         <button type="button" data-district="dev" aria-pressed="false" style="--district-color:#51eeff">Dev Lab</button>
@@ -57,15 +57,41 @@
             <h2 id="agents-heading">Агенты</h2>
             <p id="note">Подключаемся к серверу статусов…</p>
           </div>
-          <button id="demo" class="demo-button" type="button" aria-pressed="false">
-            <span class="play" aria-hidden="true"></span><span id="demo-label">Демо-режим (Экшн)</span>
-          </button>
+          <div class="dashboard-controls">
+            <button id="demo" class="demo-button" type="button" aria-pressed="false">
+              <span class="play" aria-hidden="true"></span><span id="demo-label">Демо-режим (Экшн)</span>
+            </button>
+            <button id="new-task" class="primary-button" type="button" hidden>Новое задание</button>
+          </div>
         </div>
+        <div id="agent-inspection" class="agent-inspection" hidden>
+          <div><strong id="inspection-agent"></strong> <span id="inspection-action"></span><p id="inspection-detail"></p></div>
+          <button id="district-view" class="outline-button" type="button">Вид этажа</button>
+        </div>
+        <p id="task-receipt" class="task-receipt" role="status" hidden></p>
         <div id="agents" class="agents"></div>
         <div id="job-status" class="job-status" aria-label="Фоновые задачи" hidden></div>
       </section>
       <p id="world-help" class="world-help">Свайп для поворота · Щипок для зума · Тап для осмотра</p>
     </div>
   </main>
+  <dialog id="task-dialog" class="task-dialog" aria-labelledby="task-title">
+    <form id="task-form">
+      <div class="task-heading">
+        <h2 id="task-title">Новое задание</h2>
+        <button id="close-task" type="button" class="outline-button" aria-label="Закрыть">×</button>
+      </div>
+      <label for="task-project">Проект</label>
+      <select id="task-project" name="project">
+        <option value="dev">Dev Lab</option>
+        <option value="moex">MOEX Quant Terminal</option>
+        <option value="grants">Радар грантов</option>
+      </select>
+      <label for="task-text">Что нужно сделать</label>
+      <textarea id="task-text" name="task" rows="5" maxlength="6000" required></textarea>
+      <p id="task-message" role="status" hidden></p>
+      <button id="submit-task" class="primary-button" type="submit">Запустить</button>
+    </form>
+  </dialog>
 </body>
 </html>

@@ -5,6 +5,7 @@ telegram?.ready();
 telegram?.expand();
 
 const elements = {
+  app: document.querySelector('#app'),
   world: document.querySelector('#world'),
   canvas: document.querySelector('#city'),
   markers: document.querySelector('#markers'),
@@ -20,10 +21,24 @@ const elements = {
   panelText: document.querySelector('#district-description'),
   overview: document.querySelector('#overview'),
   help: document.querySelector('#world-help'),
+  inspection: document.querySelector('#agent-inspection'),
+  inspectionAgent: document.querySelector('#inspection-agent'),
+  inspectionAction: document.querySelector('#inspection-action'),
+  inspectionDetail: document.querySelector('#inspection-detail'),
+  districtView: document.querySelector('#district-view'),
+  newTask: document.querySelector('#new-task'),
+  dialog: document.querySelector('#task-dialog'),
+  taskForm: document.querySelector('#task-form'),
+  taskProject: document.querySelector('#task-project'),
+  taskText: document.querySelector('#task-text'),
+  taskMessage: document.querySelector('#task-message'),
+  taskReceipt: document.querySelector('#task-receipt'),
+  closeTask: document.querySelector('#close-task'),
+  submitTask: document.querySelector('#submit-task'),
 };
 
 const districts = {
-  hq: { name: 'Байтерек', label: 'Байтерек', description: 'Главный штаб · маршрутизация задач', color: '#ffc779', x: 0, z: -7, height: 15.8, width: 8.3, depth: 7.4 },
+  hq: { name: 'Таймс-сквер · Эмпайр-стейт-билдинг', label: 'Таймс-сквер', description: 'Главный штаб в небоскрёбе ар-деко', color: '#ffcc91', x: 0, z: -7, height: 20.8, width: 9.3, depth: 8.5 },
   moex: { name: 'MOEX · Биржевой терминал', label: 'MOEX', description: 'Архив данных, терминалы и серверы MOEX ISS', color: '#72aaff', x: -14, z: -13, height: 13.6, width: 9.4, depth: 8.5 },
   grants: { name: 'Центр Грантов', label: 'Радар', description: 'Автоматическая проверка публикаций', color: '#67f5b0', x: 13, z: -14, height: 8.1, width: 9, depth: 8.5 },
   dev: { name: 'Dev Lab', label: 'Dev Lab', description: 'Голографические терминалы и стенды для тестов', color: '#51eeff', x: -13.5, z: 10, height: 6.2, width: 9.4, depth: 8.5 },
@@ -73,6 +88,7 @@ const cards = new Map();
 const districtButtons = [...document.querySelectorAll('[data-district]')];
 let city;
 let selected;
+let selectedAgent;
 let rows = new Map();
 let socket;
 let reconnect;
@@ -81,15 +97,23 @@ let forcedDemo = false;
 let connecting = canConnect;
 let demoInterval;
 let liveFailure = false;
+let taskRequest;
+let submitting = false;
+
+elements.newTask.hidden = !initData || !endpoint;
 
 for (const profile of profiles.filter(profile => !profile.job)) {
   const card = document.createElement('article');
   card.className = 'agent';
   card.style.setProperty('--agent-color', profile.color);
-  card.innerHTML = '<h3></h3><p></p><small></small><details hidden><summary>Файлы</summary><div></div></details>';
+  card.innerHTML = '<h3></h3><p></p><small></small><button class="agent-focus" type="button" aria-pressed="false">К агенту</button><details hidden><summary>Файлы</summary><div></div></details>';
   card.querySelector('h3').textContent = profile.title;
   elements.agents.append(card);
+  const follow = card.querySelector('.agent-focus');
+  follow.setAttribute('aria-label', 'К агенту ' + profile.title);
+  follow.addEventListener('click', () => selectAgent(profile.id));
   cards.set(profile.id, {
+    follow,
     action: card.querySelector('p'),
     detail: card.querySelector('small'),
     files: card.querySelector('details'),
@@ -144,6 +168,8 @@ function apply(snapshot) {
   }));
   elements.jobs.hidden = !jobs.length;
   city?.update(rows);
+  if (selectedAgent && rows.get(selectedAgent)?.district !== selected) selectAgent(selectedAgent);
+  else updateInspection();
 }
 
 function updateConnectionLabel() {
@@ -228,8 +254,26 @@ function connect() {
   });
 }
 
-function selectDistrict(id) {
+function updateInspection() {
+  elements.inspection.hidden = !selectedAgent;
+  for (const [id, card] of cards) card.follow.setAttribute('aria-pressed', String(selectedAgent === id));
+  if (!selectedAgent) return;
+  const row = rows.get(selectedAgent) ?? empty;
+  elements.inspectionAgent.textContent = profiles.find(profile => profile.id === selectedAgent).title;
+  elements.inspectionAction.textContent = '· ' + stateLabel(row);
+  elements.inspectionDetail.textContent = row.detail;
+  elements.inspectionDetail.hidden = !row.detail;
+}
+
+function selectAgent(id) {
+  selectDistrict((rows.get(id) ?? empty).district, id);
+}
+
+function selectDistrict(id, agentId) {
   selected = id;
+  selectedAgent = agentId;
+  if (id) elements.app.dataset.focused = '';
+  else delete elements.app.dataset.focused;
   elements.panel.hidden = !id;
   for (const button of districtButtons) button.setAttribute('aria-pressed', String(button.dataset.district === id));
   if (id) {
@@ -239,7 +283,8 @@ function selectDistrict(id) {
     elements.panelName.textContent = district.name;
     elements.panelText.textContent = district.description;
   }
-  city?.select(id);
+  updateInspection();
+  city?.select(id, agentId);
 }
 
 function toggleDemo() {
@@ -260,8 +305,59 @@ function toggleDemo() {
   updateConnectionLabel();
 }
 
+elements.newTask.addEventListener('click', () => {
+  if (!elements.taskText.value && ['moex', 'grants', 'dev'].includes(selected)) elements.taskProject.value = selected;
+  elements.dialog.showModal();
+  elements.taskText.focus();
+});
+elements.closeTask.addEventListener('click', () => elements.dialog.close());
+elements.taskForm.addEventListener('submit', async event => {
+  event.preventDefault();
+  if (submitting) return;
+  const task = elements.taskText.value.trim();
+  const project = elements.taskProject.value;
+  elements.taskMessage.hidden = false;
+  if (!task) {
+    elements.taskMessage.textContent = 'Опишите задание.';
+    elements.taskText.focus();
+    return;
+  }
+  if (taskRequest?.task !== task || taskRequest?.project !== project) {
+    taskRequest = { requestId: crypto.randomUUID(), project, task };
+  }
+  submitting = true;
+  elements.submitTask.disabled = true;
+  elements.taskForm.setAttribute('aria-busy', 'true');
+  elements.taskMessage.textContent = 'Запускаем задание…';
+  try {
+    const response = await fetch(new URL('/api/tasks', endpoint), {
+      method: 'POST',
+      headers: { authorization: 'tma ' + initData, 'content-type': 'application/json' },
+      body: JSON.stringify(taskRequest),
+      signal: AbortSignal.timeout(16000),
+    });
+    const result = await response.json();
+    if (!response.ok) {
+      elements.taskMessage.textContent = result.error ?? 'Сервис заданий временно недоступен.';
+      return;
+    }
+    elements.taskReceipt.textContent = 'Задание запущено · ' + result.label + '. Отчёт появится в чате.';
+    elements.taskReceipt.hidden = false;
+    elements.taskText.value = '';
+    elements.taskMessage.hidden = true;
+    taskRequest = undefined;
+    elements.dialog.close();
+  } catch {
+    elements.taskMessage.textContent = 'Связь прервалась. Повторите отправку с тем же текстом.';
+  } finally {
+    submitting = false;
+    elements.submitTask.disabled = false;
+    elements.taskForm.removeAttribute('aria-busy');
+  }
+});
 for (const button of districtButtons) button.addEventListener('click', () => selectDistrict(button.dataset.district));
 elements.overview.addEventListener('click', () => selectDistrict(null));
+elements.districtView.addEventListener('click', () => selectDistrict(selected));
 elements.demo.addEventListener('click', toggleDemo);
 document.addEventListener('visibilitychange', () => {
   if (!document.hidden && socket?.readyState !== WebSocket.OPEN) connect();
@@ -275,7 +371,7 @@ Promise.all([import('three'), import('three/addons/controls/OrbitControls.js')])
   .then(([THREE, { OrbitControls }]) => {
     city = createCity(THREE, OrbitControls);
     city.update(rows);
-    if (selected) selectDistrict(selected);
+    if (selected) selectDistrict(selected, selectedAgent);
   })
   .catch(() => {
     elements.world.dataset.fallback = 'true';
@@ -302,7 +398,7 @@ function createCity(THREE, OrbitControls) {
   controls.minPolarAngle = .38;
   controls.maxPolarAngle = 1.24;
   controls.minZoom = .75;
-  controls.maxZoom = 6;
+  controls.maxZoom = 13;
   const widePosition = V(45, 42, 55);
   const wideCenter = V(0, 4, 0);
   camera.position.copy(widePosition);
@@ -550,39 +646,76 @@ function createCity(THREE, OrbitControls) {
     return { roof, glow, material };
   }
 
-  function bayterek(building) {
-    const warm = building.retractable({ color: 0xffa544, emissive: 0x9b4310, emissiveIntensity: .8, metalness: .62 });
-    const spine = building.retractable({ color: 0xf9c279, emissive: 0xef921a, emissiveIntensity: .6 });
-    cylinder(building.exterior, warm, 0, .85, 0, 3.55, .74);
-    cylinder(building.exterior, warm, 0, 5.8, 0, .76, 9.9);
-    const branches = 10;
-    for (let index = 0; index < branches; index++) {
-      const angle = index / branches * Math.PI * 2;
-      const ux = Math.cos(angle);
-      const uz = Math.sin(angle);
-      const stance = V(ux * 2.6, 1.4, uz * 2.6);
-      const waist = V(ux * 1.19, 6.4, uz * 1.19);
-      const crown = V(ux * 3.05, 12.6, uz * 3.05);
-      rod(building.exterior, spine, stance, waist, .066);
-      rod(building.exterior, spine, waist, crown, .086);
+  function timesSquare(building) {
+    const exterior = building.exterior;
+    const main = shell(building, 6.95, 7.9, 8.6, .48, '#2d314b');
+    const second = shell(building, 5.8, 6.48, 5.1, 9.16, '#232a44');
+    shell(building, 4.3, 4.9, 2.94, 14.35, '#33314a');
+    const stone = building.retractable({ color: 0xbcc8d9, metalness: .49, emissive: 0x53413c, emissiveIntensity: .2 });
+    const crown = building.retractable({ color: 0xffe5b0, emissive: 0xffb361, emissiveIntensity: .72 });
+    for (const side of [-1, 1]) {
+      for (const edge of [-1, 1]) {
+        box(exterior, stone, edge * 3.91, 4.63, side * 3.45, .18, 8.31, .19);
+        box(exterior, stone, edge * 3.21, 11.6, side * 2.87, .14, 4.82, .16);
+      }
+      for (const x of [-2.63, -1.32, 0, 1.32, 2.63]) {
+        box(exterior, stone, x, 4.8, side * 3.56, .084, 6.95, .08);
+      }
+      box(exterior, main.glow, 0, 8.87, side * 3.54, 7.84, .16, .12);
+      box(exterior, second.glow, 0, 14.08, side * 2.97, 6.41, .13, .1);
     }
-    for (let level = 0; level < 4; level++) {
-      ring(building.exterior, spine, 0, 9.9 + level * .63, 0, 1.82 + level * .28, .055);
+    box(exterior, stone, 0, 17.72, 0, 3.14, .88, 2.69);
+    box(exterior, crown, 0, 18.04, 0, 3.18, .17, 2.73);
+    box(exterior, stone, 0, 18.59, 0, 1.92, 1.05, 1.65);
+    box(exterior, crown, 0, 19.16, 0, 1.32, .14, 1.17);
+    rod(exterior, stone, V(0, 19.14, 0), V(0, 20.6, 0), .077);
+    rod(exterior, crown, V(0, 20.55, 0), V(0, 20.83, 0), .041);
+
+    const boards = [
+      { x: -2.53, y: 2.37, w: 2.25, h: 2.13, ink: '#fd57bf', accent: '#f2a7ff', title: 'TIMES', bottom: 'SQUARE' },
+      { x: .05, y: 2.69, w: 2.53, h: 1.38, ink: '#267af7', accent: '#85faff', title: 'NEW YORK', bottom: 'CITY' },
+      { x: 2.59, y: 2.4, w: 2.08, h: 2.32, ink: '#e84f36', accent: '#ffd489', title: 'BROADWAY', bottom: '42 ST' },
+    ];
+    for (const board of boards) {
+      const texture = art(230, 140, ctx => {
+        const color = ctx.createLinearGradient(0, 0, 230, 140);
+        color.addColorStop(0, '#101633');
+        color.addColorStop(1, board.ink);
+        ctx.fillStyle = color;
+        ctx.fillRect(0, 0, 230, 140);
+        ctx.strokeStyle = board.accent;
+        ctx.lineWidth = 3;
+        ctx.strokeRect(4, 4, 222, 132);
+        ctx.fillStyle = '#ffffff';
+        ctx.font = 'bold 28px sans-serif';
+        ctx.textAlign = 'center';
+        ctx.fillText(board.title, 115, 59, 202);
+        ctx.fillStyle = board.accent;
+        ctx.font = 'bold 25px sans-serif';
+        ctx.fillText(board.bottom, 115, 103, 202);
+      }).texture;
+      const screen = building.retractable({ color: 0xffffff, map: texture, emissive: 0xffffff, emissiveMap: texture, emissiveIntensity: 1 });
+      panel(exterior, screen, board.x, board.y, 3.61, board.w, board.h);
     }
-    const glass = building.retractable({
-      color: 0xffbf56, emissive: 0xc9600a, emissiveIntensity: .87, flatShading: true, metalness: .43, roughness: .19,
-    });
-    const orb = new THREE.Mesh(new THREE.IcosahedronGeometry(2.48, 3), glass);
-    orb.position.y = 13.45;
-    building.exterior.add(orb);
-    ring(building.exterior, spine, 0, 13.05, 0, 2.78, .11);
-    ring(building.group, building.accent, 0, .54, 0, 3.35, .047);
-    for (let index = 0; index < 8; index++) {
-      const angle = index / 8 * Math.PI * 2;
-      const x = Math.cos(angle) * 3.4;
-      const z = Math.sin(angle) * 3.4;
-      cylinder(building.group, paint(0x493e3c), x, .7, z, .12, .35);
-      cylinder(building.group, building.accent, x, .9, z, .097, .035);
+    const marquee = art(360, 76, ctx => {
+      ctx.fillStyle = '#122348';
+      ctx.fillRect(0, 0, 360, 76);
+      ctx.fillStyle = '#ffdf9b';
+      ctx.font = 'bold 29px sans-serif';
+      ctx.textAlign = 'center';
+      ctx.fillText('EMPIRE STATE', 180, 47);
+    }).texture;
+    const sign = building.retractable({ color: 0xffffff, map: marquee, emissive: 0xffffff, emissiveMap: marquee, emissiveIntensity: .72 });
+    panel(exterior, sign, 0, 6.62, 3.6, 5.47, 1.13);
+    for (const x of [-3.8, 3.8]) {
+      cylinder(building.group, paint(0x4e4862), x, .82, 3.84, .12, .71);
+      sphereLamp(x);
+    }
+
+    function sphereLamp(x) {
+      const bulb = new THREE.Mesh(new THREE.SphereGeometry(.15, 9, 6), building.accent);
+      bulb.position.set(x, 1.19, 3.84);
+      building.group.add(bulb);
     }
   }
 
@@ -834,7 +967,7 @@ function createCity(THREE, OrbitControls) {
     };
   }
 
-  const builders = { hq: bayterek, moex: stockExchange, grants: grantRadar, dev: developerLab, lounge };
+  const builders = { hq: timesSquare, moex: stockExchange, grants: grantRadar, dev: developerLab, lounge };
   for (const [id, district] of Object.entries(districts)) {
     const building = makeBuilding(id, district);
     builders[id](building);
@@ -1027,24 +1160,73 @@ function createCity(THREE, OrbitControls) {
     const rect = elements.canvas.getBoundingClientRect();
     coordinates.set((event.clientX - rect.left) / rect.width * 2 - 1, -(event.clientY - rect.top) / rect.height * 2 + 1);
     ray.setFromCamera(coordinates, camera);
+    if (focusId) {
+      const onFloor = agents.filter(agent => agent.group.visible && agent.row.district === focusId && !agent.profile.job);
+      const hit = ray.intersectObjects(onFloor.map(agent => agent.group), true)[0];
+      if (hit) {
+        let object = hit.object;
+        while (object.parent && !onFloor.some(agent => agent.group === object)) object = object.parent;
+        const agent = onFloor.find(candidate => candidate.group === object);
+        if (agent) selectAgent(agent.profile.id);
+      }
+      return;
+    }
     const picked = ray.intersectObjects(hitboxes, false)[0];
     if (picked) selectDistrict(picked.object.userData.id);
   });
 
   let focusId;
+  let follower;
   let cameraMove;
-  const facing = V(.62, .76, .76).normalize();
+  let view;
+  const followStep = V();
+  const facing = V(.64, .86, .75).normalize();
+  const selectionRing = ring(scene, new THREE.MeshBasicMaterial({ color: 0xd2fef0, depthWrite: false, depthTest: false }), 0, -.1, 0, .77, .038);
+  selectionRing.renderOrder = 100;
+  selectionRing.visible = false;
+
+  function measureView() {
+    const bounds = elements.canvas.getBoundingClientRect();
+    if (!bounds.width || !bounds.height) return;
+    const aspect = bounds.width / bounds.height;
+    const horizontal = Math.min(95, Math.max(56, aspect * 49));
+    const upper = (focusId ? elements.panel : document.querySelector('.topbar')).getBoundingClientRect().bottom;
+    const lower = document.querySelector('.bottom').getBoundingClientRect().top;
+    const room = Math.max(bounds.height * .2, lower - upper - 24);
+    const center = THREE.MathUtils.clamp((lower + upper) / 2 - bounds.top, bounds.height * .25, bounds.height * .68);
+    view = { horizontal, vertical: horizontal / aspect, center, room, height: bounds.height };
+  }
+
+  function updateProjection() {
+    if (!view) return;
+    const { horizontal, vertical, center, height } = view;
+    const lift = (center / height - .5) * vertical / camera.zoom;
+    if (camera.right === horizontal / 2 && camera.top === vertical / 2 + lift) return;
+    camera.left = -horizontal / 2;
+    camera.right = horizontal / 2;
+    camera.bottom = -vertical / 2 + lift;
+    camera.top = vertical / 2 + lift;
+    camera.updateProjectionMatrix();
+  }
+
   function framing(id) {
     if (!id) return { position: widePosition, target: wideCenter, zoom: 1 };
     const building = buildings.get(id);
-    const target = V(building.x, 1.25, building.z);
-    const position = target.clone().addScaledVector(facing, 51);
-    const aspect = elements.canvas.clientWidth / Math.max(1, elements.canvas.clientHeight);
-    return { position, target, zoom: aspect < .8 ? 3.15 : 3.85 };
+    const target = follower ? follower.group.position.clone() : V(building.x, 1.05, building.z);
+    const position = target.clone().addScaledVector(facing, 45);
+    const heightVisible = view ? view.vertical * view.room / view.height : 32;
+    const zoom = THREE.MathUtils.clamp(Math.min(
+      (view?.horizontal ?? 58) / (follower ? 6.4 : 13.6),
+      heightVisible / (follower ? 4.9 : 9.35),
+    ), 1.65, 11);
+    return { position, target, zoom };
   }
 
-  function select(id) {
+  function select(id, agentId) {
     focusId = id;
+    follower = agents.find(agent => agent.profile.id === agentId);
+    for (const building of buildings.values()) building.group.visible = !id || building.id === id;
+    measureView();
     const goal = framing(id);
     cameraMove = {
       ...goal, fromPosition: camera.position.clone(), fromTarget: controls.target.clone(), fromZoom: camera.zoom,
@@ -1059,23 +1241,27 @@ function createCity(THREE, OrbitControls) {
     const height = elements.canvas.clientHeight;
     if (!width || !height) return;
     renderer.setSize(width, height, false);
-    const aspect = width / height;
-    const horizontal = Math.min(95, Math.max(56, aspect * 49));
-    const vertical = horizontal / aspect;
-    const lift = vertical * (aspect < .84 ? -.067 : -.089);
-    camera.left = -horizontal / 2;
-    camera.right = horizontal / 2;
-    camera.bottom = -vertical / 2 + lift;
-    camera.top = vertical / 2 + lift;
-    camera.updateProjectionMatrix();
-    if (focusId) select(focusId);
+    measureView();
+    updateProjection();
+    if (focusId) select(focusId, follower?.profile.id);
   }
   new ResizeObserver(resize).observe(elements.world);
+  const overlay = new ResizeObserver(measureView);
+  overlay.observe(elements.panel);
+  overlay.observe(document.querySelector('.bottom'));
   resize();
 
-  function animateCamera(time) {
-    if (!cameraMove) return;
-    const progress = reducedMotion.matches ? 1 : Math.min((time - cameraMove.started) / .82, 1);
+  function animateCamera(time, delta) {
+    if (!cameraMove) {
+      if (follower) {
+        followStep.copy(follower.group.position).sub(controls.target)
+          .multiplyScalar(reducedMotion.matches ? 1 : Math.min(delta * 8, 1));
+        controls.target.add(followStep);
+        camera.position.add(followStep);
+      }
+      return;
+    }
+    const progress = reducedMotion.matches ? 1 : Math.min((time - cameraMove.started) / .72, 1);
     const eased = 1 - Math.pow(1 - progress, 3);
     camera.position.copy(cameraMove.fromPosition).lerp(cameraMove.position, eased);
     controls.target.copy(cameraMove.fromTarget).lerp(cameraMove.target, eased);
@@ -1087,7 +1273,8 @@ function createCity(THREE, OrbitControls) {
   function setWallFade(building, delta) {
     const isFocused = focusId === building.id;
     building.interior.visible = isFocused;
-    const next = isFocused ? .135 : 1;
+    const next = isFocused ? 0 : 1;
+    building.exterior.visible = !isFocused || building.fade > .018;
     if (Math.abs(building.fade - next) < .003) return;
     building.fade = reducedMotion.matches ? next : THREE.MathUtils.lerp(building.fade, next, Math.min(delta * 7.5, 1));
     if (Math.abs(building.fade - next) < .006) building.fade = next;
@@ -1108,10 +1295,10 @@ function createCity(THREE, OrbitControls) {
     const height = elements.canvas.clientHeight;
     for (const [id, building] of buildings) {
       const { marker, activity } = building;
-      screenPoint.set(building.x, focusId === id ? 2.8 : building.height + .68, building.z).project(camera);
+      screenPoint.set(building.x, building.height + .68, building.z).project(camera);
       const x = (screenPoint.x + 1) * width / 2;
       const y = (1 - screenPoint.y) * height / 2;
-      const visible = (!focusId || focusId === id) && x > 32 && x < width - 32 && y > 62 && y < height * .78;
+      const visible = !focusId && x > 32 && x < width - 32 && y > 62 && y < height * .78;
       if (building.visible !== visible) {
         building.visible = visible;
         marker.hidden = !visible;
@@ -1156,8 +1343,9 @@ function createCity(THREE, OrbitControls) {
     const delta = Math.min(.065, Math.max(.001, time - then));
     then = time;
     const visualTime = reducedMotion.matches ? 0 : time;
-    animateCamera(time);
+    animateCamera(time, delta);
     controls.update();
+    updateProjection();
     updateTicker(visualTime);
     updateRadar(visualTime);
     updateWater(visualTime);
@@ -1177,14 +1365,20 @@ function createCity(THREE, OrbitControls) {
       agent.lastPosition.copy(end);
       agent.group.position.copy(end);
       const active = !agent.profile.job || agent.row.action !== 'idle';
-      const enclosed = building.id === 'moex' || building.id === 'dev' || building.id === 'grants';
-      const showExterior = !enclosed || flying || focusId !== building.id;
-      agent.group.visible = active;
+      const enclosed = building.id !== 'lounge';
+      const showExterior = flying || focusId !== building.id;
+      agent.group.visible = active && (!focusId || focusId === building.id);
+      agent.group.scale.setScalar(follower === agent ? 1.68 : focusId === building.id ? 1.29 : 1);
       if (active && showExterior && enclosed && !flying) {
         agent.group.position.set(building.x + (agent.index - 2) * .53, building.height + .64 + Math.sin(visualTime * 4 + agent.index) * .13, building.z + .68);
       }
       effects(agent, building, visualTime, active && !flying && focusId === building.id);
-      updatePackets(agent, building, visualTime, active);
+      updatePackets(agent, building, visualTime, active && !focusId);
+    }
+    selectionRing.visible = Boolean(follower?.group.visible);
+    if (selectionRing.visible) {
+      const { x, y, z } = follower.group.position;
+      selectionRing.position.set(x, Math.max(.52, y - .53), z);
     }
     placeMarkers();
     renderer.render(scene, camera);
