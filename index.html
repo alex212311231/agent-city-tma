@@ -3,25 +3,69 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
-  <meta name="theme-color" content="#10121b">
-  <title>Агентный офис</title>
-  <link rel="stylesheet" href="./office.css">
+  <meta name="theme-color" content="#080e20">
+  <title>Город агентов</title>
+  <link rel="stylesheet" href="./office.css?v=61c123c7086c">
+  <script type="importmap">
+    {
+      "imports": {
+        "three": "https://cdn.jsdelivr.net/npm/three@0.180.0/build/three.module.js",
+        "three/addons/": "https://cdn.jsdelivr.net/npm/three@0.180.0/examples/jsm/"
+      }
+    }
+  </script>
   <script defer src="https://telegram.org/js/telegram-web-app.js"></script>
   <script defer src="./config.js"></script>
-  <script defer src="./office.js"></script>
+  <script defer src="./office.js?v=4e84f00839ed"></script>
 </head>
 <body>
-  <main>
-    <header>
-      <h1>Агентный офис</h1>
-      <span id="connection" class="connection" role="status" data-mode="demo">Демо</span>
+  <main class="app">
+    <div id="world" class="world">
+      <canvas id="city" aria-label="Трёхмерная карта города. Перетаскивание вращает камеру, щипок или колёсико меняет масштаб."></canvas>
+      <div id="markers" class="markers"></div>
+      <div class="horizon" aria-hidden="true"></div>
+    </div>
+
+    <header class="topbar">
+      <div class="identity">
+        <div class="mark" aria-hidden="true"><i></i><i></i><i></i></div>
+        <h1>Город агентов</h1>
+      </div>
+      <div id="connection" class="connection" role="status" data-mode="demo">Демо</div>
     </header>
-    <figure>
-      <canvas id="map" width="320" height="184" role="img" aria-label="Пиксельный офис со столами, серверной и зоной отдыха"></canvas>
-      <figcaption><span>Рабочие места</span><span>Серверная</span><span>Зона отдыха</span></figcaption>
-    </figure>
-    <section id="agents" aria-label="Статусы агентов"></section>
-    <footer><p id="note">Демонстрация движения и состояний агентов.</p><button id="retry" type="button" hidden>Подключиться</button></footer>
+
+    <aside id="district" class="district glass" aria-label="Выбранное место" hidden>
+      <div>
+        <div class="xray"><span aria-hidden="true"></span><b id="district-mode">РЕНТГЕН</b></div>
+        <h2 id="district-name"></h2>
+        <p id="district-description"></p>
+      </div>
+      <button id="overview" class="overview" type="button">Обзор всего города</button>
+    </aside>
+
+    <div class="bottom">
+      <nav class="districts" aria-label="Районы города">
+        <button type="button" data-district="hq" aria-pressed="false" style="--district-color:#ffc779">Байтерек</button>
+        <button type="button" data-district="moex" aria-pressed="false" style="--district-color:#72aaff">MOEX</button>
+        <button type="button" data-district="grants" aria-pressed="false" style="--district-color:#67f5b0">Радар</button>
+        <button type="button" data-district="dev" aria-pressed="false" style="--district-color:#51eeff">Dev Lab</button>
+        <button type="button" data-district="lounge" aria-pressed="false" style="--district-color:#fc93ee">Cyber Lounge</button>
+      </nav>
+      <section class="dashboard glass" aria-labelledby="agents-heading">
+        <div class="dashboard-header">
+          <div>
+            <h2 id="agents-heading">Агенты</h2>
+            <p id="note">Подключаемся к серверу статусов…</p>
+          </div>
+          <button id="demo" class="demo-button" type="button" aria-pressed="false">
+            <span class="play" aria-hidden="true"></span><span id="demo-label">Демо-режим (Экшн)</span>
+          </button>
+        </div>
+        <div id="agents" class="agents"></div>
+        <div id="job-status" class="job-status" aria-label="Фоновые задачи" hidden></div>
+      </section>
+      <p id="world-help" class="world-help">Свайп для поворота · Щипок для зума · Тап для осмотра</p>
+    </div>
   </main>
 </body>
 </html>
