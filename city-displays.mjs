@@ -202,3 +202,66 @@ export function monitor(THREE) {
   show();
   return { material,show };
 }
+
+export function officeSign(THREE, title) {
+  const {ctx,texture,material}=screen(THREE,768,112);
+  ctx.fillStyle='#142436';
+  ctx.fillRect(0,0,768,112);
+  ctx.fillStyle='#65c8db';
+  ctx.fillRect(4,111,760,1);
+  ctx.font='650 55px '+font;
+  ctx.textAlign='center';
+  ctx.textBaseline='middle';
+  ctx.fillStyle='#d8f5ff';
+  ctx.fillText(title,384,58,703);
+  texture.needsUpdate=true;
+  return material;
+}
+
+export function projectPanel(THREE, title) {
+  const {ctx,texture,material}=screen(THREE,640,328);
+  material.transparent=true;
+  material.depthWrite=false;
+  material.opacity=.89;
+  material.color.setScalar(1.5);
+  const labels={
+    idle:'Ожидание',read_files:'Чтение файлов',write_code:'Разработка',
+    run_tests:'Тестирование',deploy_report:'Передача отчёта',error:'Разбор ошибки',
+  };
+  let previous;
+  function show(activity,entry,floor){
+    const active=activity!=='idle';
+    const titleText=active?(entry.title||entry.subject||labels[activity]):labels.idle;
+    const target=active?entry.subject||'': '';
+    const details=active&&entry.test_count!=null?'ПРОВЕРКИ · '+entry.test_count:'AI HUB   /   ЭТАЖ '+floor;
+    const signature=[activity,titleText,target,details,entry.test_result];
+    const next=signature.join('\u001f');
+    if(next===previous)return;
+    previous=next;
+    const accent=activity==='error'?'#ffc5c4':activity==='run_tests'&&entry.test_result==='success'?'#b0f8b1':'#9ae9f3';
+    ctx.fillStyle='#071a31';
+    ctx.fillRect(0,0,640,328);
+    ctx.strokeStyle='#34728b';
+    ctx.lineWidth=2;
+    ctx.strokeRect(7,7,626,314);
+    ctx.fillStyle='#1f3d53';
+    for(let y=91;y<326;y+=23)ctx.fillRect(12,y,616,1);
+    ctx.fillStyle=accent;
+    ctx.font='700 26px '+mono;
+    ctx.fillText(title,32,49,570);
+    ctx.font='600 23px '+font;
+    ctx.fillText(labels[activity],32,106,570);
+    ctx.fillStyle='#e6f6ff';
+    ctx.font='600 36px '+font;
+    ctx.fillText(titleText,32,161,570);
+    ctx.font='400 24px '+mono;
+    ctx.fillText(target,32,205,570);
+    ctx.font='600 22px '+mono;
+    ctx.fillStyle=accent;
+    ctx.fillText(details,32,286,570);
+    ctx.fillRect(33,233,active?238:74,4);
+    texture.needsUpdate=true;
+  }
+  show('idle',{},1);
+  return { material,show };
+}

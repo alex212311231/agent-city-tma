@@ -16,14 +16,17 @@ function bubble(THREE,parent,offset=2.42,lateral=0){
   const texture=new THREE.CanvasTexture(canvas);
   texture.colorSpace=THREE.SRGBColorSpace;
   const sprite=new THREE.Sprite(new THREE.SpriteMaterial({map:texture,depthWrite:false,toneMapped:false}));
-  sprite.position.set(lateral,offset,0);sprite.scale.set(5.65,1.37,1);
+  sprite.position.set(lateral,offset,0);sprite.scale.set(3.85,.93,1);
   parent.add(sprite);
   let signature;
-  return { show(text,accent='#87e8ff') {
+  let allowed=true;
+  let content=false;
+  return { near(value){allowed=!value;sprite.visible=allowed&&content;}, show(text,accent='#87e8ff') {
     const key=text+accent;
     if(signature===key)return;
     signature=key;
-    sprite.visible=Boolean(text);
+    content=Boolean(text);
+    sprite.visible=allowed&&content;
     if(!text)return;
     ctx.clearRect(0,0,480,116);
     ctx.fillStyle='#0b1628f5';
@@ -37,9 +40,8 @@ function bubble(THREE,parent,offset=2.42,lateral=0){
   }};
 }
 
-export function buildOffice(THREE,plot,displays){
+export function buildOffice(THREE,plot,displays,assets){
   const unit=new THREE.BoxGeometry();
-  const ball=new THREE.SphereGeometry(.192,8,6);
   const scheme={
     ink:0x243447, wood:0x98694a, pale:0xddd3c1, floor:0x8c9ca8, blue:0x506e87,
     cream:0xf0dfb8, lime:0x419d91, wine:0xa3525d, silver:0xa7b4bb,
@@ -66,12 +68,16 @@ export function buildOffice(THREE,plot,displays){
   const ceilings=[];
   const solid=[];
   const faces=[];
+  const dashboards=[];
+  const rackLights=[];
   const crew=[];
   const facing=plot.facing;
   const front=shaft.z+facing*shaft.d/2;
+  const yaw=facing===1?0:Math.PI;
+  const labels={hq:'ЭМПАЙР-СТЕЙТ · ШТАБ',moex:'MOEX TOWER',dev:'DEV LAB',grants:'GRANTS RADAR'};
   const silver=color('silver');
   const glass=new THREE.MeshStandardMaterial({color:0xa8e4f7,transparent:true,opacity:.29,roughness:.39,depthWrite:false,side:THREE.DoubleSide});
-  const amber=new THREE.MeshBasicMaterial({color:0xffdc92,toneMapped:false});
+  const amber=new THREE.MeshBasicMaterial({color:new THREE.Color(0xffdcb2).multiplyScalar(1.36)});
   let activity='idle';
   let model={};
   let previous;
@@ -94,7 +100,7 @@ export function buildOffice(THREE,plot,displays){
     new THREE.Vector3(plot.x+x-w/2,y-h/2,plot.z+z-d/2),
     new THREE.Vector3(plot.x+x+w/2,y+h/2,plot.z+z+d/2));
 
-  const halfW=10,halfD=9;
+  const halfW=plot.width/2-.09,halfD=plot.depth/2-.09;
   function deck(specs,y){
     const west=shaft.x-shaft.w/2,east=shaft.x+shaft.w/2;
     const north=shaft.z-shaft.d/2,south=shaft.z+shaft.d/2;
@@ -103,14 +109,51 @@ export function buildOffice(THREE,plot,displays){
     join(west,east,-halfD,north);join(west,east,south,halfD);
   }
 
-  function monitor(parent,x,y,z,w,h,index){
-    const display=displays.monitor(THREE);
-    block(parent,'ink',x,y,z,w+.18,h+.16,.19);
-    const mesh=new THREE.Mesh(new THREE.PlaneGeometry(w,h),display.material);
-    mesh.position.set(x,y,z+facing*.103);
-    mesh.rotation.y=facing===1?0:Math.PI;
+  function panel(parent,appearance,w,h,x,y,z,angle=yaw){
+    const mesh=new THREE.Mesh(new THREE.PlaneGeometry(w,h),appearance);
+    mesh.position.set(x,y,z);
+    mesh.rotation.y=angle;
     parent.add(mesh);
-    faces.push({index,display});
+    return mesh;
+  }
+
+  function desk(floor,index,x,z,live){
+    const angle=yaw;
+    const display=live?displays.monitor(THREE):null;
+    const y=floors[index];
+    assets.place(floor,'desk',{x,z:z*facing,y:.015,yaw:angle,
+      onReady(model){
+        if(!display)return;
+        const screen=model.getObjectByName('screen_lod1');
+        const geometry=screen.geometry.clone();
+        const points=geometry.getAttribute('position');
+        geometry.computeBoundingBox();
+        const {min,max}=geometry.boundingBox;
+        const uv=new Float32Array(points.count*2);
+        for(let i=0;i<points.count;i++){
+          uv[i*2]=(points.getX(i)-min.x)/(max.x-min.x);
+          uv[i*2+1]=(points.getY(i)-min.y)/(max.y-min.y);
+        }
+        geometry.setAttribute('uv',new THREE.BufferAttribute(uv,2));
+        screen.geometry=geometry;
+        screen.material=display.material;
+      }});
+    assets.place(floor,'chair',{x,y:.015,z:(z+.78)*facing,yaw:angle+Math.PI});
+    solid.push(worldBox(x,y+.37,z*facing,1.40,.74,.72));
+    if(display)faces.push({index,display});
+    return display;
+  }
+
+  function dashboard(floor,index,x,z){
+    const board=displays.projectPanel(THREE,labels[plot.id]);
+    const light=new THREE.MeshBasicMaterial({color:new THREE.Color(0x6bc6f5).multiplyScalar(2.3)});
+    const screen=panel(floor,board.material,2.84,1.44,x,2.12,z*facing);
+    block(floor,light,x,1.37,z*facing,2.83,.015,.018);
+    block(floor,light,x,2.87,z*facing,2.83,.015,.018);
+    const base=block(floor,light,x,.13,(z+.02)*facing,1.24,.023,.29);
+    base.name='Панель проекта';
+    screen.name='Статус проекта';
+    dashboards.push({index,board});
   }
 
   for(const [index,level] of floors.entries()){
@@ -118,61 +161,84 @@ export function buildOffice(THREE,plot,displays){
     const parts=[];
     floorGroups.push(floor);
     deck(parts,-.093);
-    const carpet=index===0?0x526a82:0x526f7c;
-    parts.push([carpet,3.45,.025,.65*facing,10.1,.022,9.75],
-      [0x718c9b,3.45,.043,.65*facing+4.59,10.01,.010,.13],
-      [0x718c9b,3.45,.043,.65*facing-4.59,10.01,.010,.13]);
-    for(const side of [-1,1]){
-      parts.push(['pale',side*9.81,.54,0,.122,1.08,17.56],
-        ['pale',0,.54,side*8.83,19.38,1.08,.128]);
-    }
-    if(index===0){
-      // The entry wall has a clear central doorway on floor one.
-      parts.splice(parts.findIndex(part=>part[0]==='pale'&&part[1]===0&&part[3]===facing*8.83),1);
-    }
+    block(floor,assets.materials.wood,3.02,.005,0,halfW*2-6.16,.022,halfD*2-.15);
     const ceiling=group(floor);
     const upper=[];
-    // The ceiling leaves the shaft open to the next deck and is hidden in the cutaway.
-    deck(upper,4.44);
-    for(const x of [-4.5,3.4,7])upper.push(['cream',x,4.32,-.1,1.8,.11,15.4]);
+    deck(upper,4.38);
+    for(const x of [-4.4,2.94,8.6]){
+      upper.push(['ink',x,4.267,0,.69,.066,halfD*2-.63]);
+      block(ceiling,amber,x,4.226,0,.126,.025,halfD*2-.78);
+    }
     bulk(ceiling,upper);
     ceilings.push(ceiling);
+
+    const rearZ=-(halfD-.17)*facing;
+    block(floor,assets.materials.wood,0,1.79,rearZ,10.6,3.52,.29);
+    for(const side of [-1,1]){
+      const x=side*(halfW-.63);
+      block(floor,assets.materials.concrete,x,2.06,0,1.02,4.12,.78);
+      block(floor,assets.materials.concrete,x,.43,0,.16,.83,halfD*2-.13);
+      if(index>0)block(floor,assets.materials.concrete,0,.42,side*(halfD-.10),halfW*2-.25,.82,.15);
+    }
+    const sign=displays.officeSign(THREE,labels[plot.id]);
+    panel(floor,sign,5.2,.7,0,3.14,rearZ+facing*.16);
+    const warm=new THREE.PointLight(0xffcb98,16,13,2);
+    const fill=new THREE.PointLight(0xc8e7ff,12,12,2);
+    warm.position.set(3.8,3.74,-3.35*facing);
+    fill.position.set(-4.2,3.60,3.05*facing);
+    floor.add(warm,fill);
+    floor.userData.lights=[warm,fill];
+
     if(index===0){
-      parts.push(['wood',4.3,.63,-4.45*facing,5.25,1.23,1.12],
-        ['pale',4.3,1.28,-4.45*facing,5.34,.13,1.25],
-        ['blue',6.87,.48,5.7*facing,3.5,.85,1.42],
-        ['blue',6.87,1.0,6.27*facing,3.5,.92,.31],
-        ['wood',6.03,.39,3.5*facing,2.35,.69,1.23],
-        ['pale',6.03,.79,3.5*facing,2.4,.13,1.33],
-        ['silver',-2.2,.81,-5.1*facing,1.1,1.59,.72],
-        ['lime',-1.1,.27,5.75*facing,.86,.52,.86],
-        ['lime',-1.1,.77,5.75*facing,.52,.91,.55],
-        ['wine',5.68,.94,3.45*facing,.27,.24,.20]);
-      monitor(floor,5.2,1.98,-4.45*facing,.93,.51,index);
-      solid.push(worldBox(4.3,level+.63,-4.45*facing,5.25,1.25,1.15));
-    } else {
-      for(const [x,z] of [[2.35,-2.0],[5.35,-2.0],[4.8,3.8],[-2.4,4.3]]){
-        parts.push(['wood',x,1.12,z*facing,2.25,.12,1.33],
-          ['ink',x-1.0,.58,z*facing,.12,1.06,1.1],['ink',x+1.0,.58,z*facing,.12,1.06,1.1],
-          ['blue',x,.58,(z+1.08)*facing,.64,.64,.73],['pale',x,1.19,(z+.28)*facing,.63,.03,.24]);
-        solid.push(worldBox(x,level+.63,z*facing,2.25,1.20,1.31));
-      }
-      monitor(floor,2.35,1.87,-2.33*facing,1.78,.98,index);
-      for(const x of [6.3,8.3]){
-        parts.push(['ink',x,1.49,-6.22*facing,1.31,2.92,1.2]);
-        for(let s=0;s<6;s++)parts.push(['silver',x,.48+s*.36,-5.575*facing,1.13,.073,.05]);
-        solid.push(worldBox(x,level+1.49,-6.22*facing,1.31,2.92,1.2));
-      }
+      assets.place(floor,'reception',{x:4.87,z:-7.13*facing,y:.013,yaw});
+      assets.place(floor,'lounge',{x:7.92,z:6.55*facing,y:.018,yaw:yaw+Math.PI});
+      assets.place(floor,'plant',{x:9.7,z:5.53*facing,y:.023,height:1.30});
+      assets.place(floor,'plant',{x:-9.79,z:-6.5*facing,y:.023,height:1.29});
+      const roomX=-6.45,roomZ=4.47;
+      assets.place(floor,'meeting',{x:roomX,z:roomZ*facing,y:.027,yaw,
+        onReady(room){room.getObjectByName('door').rotation.y=Math.PI*.49;}});
+      const doorway=roomX+facing*2;
+      solid.push(
+        worldBox(roomX-3,level+1.5,roomZ*facing,.15,3,4),
+        worldBox(roomX+3,level+1.5,roomZ*facing,.15,3,4),
+        worldBox(roomX,level+1.5,(roomZ-2)*facing,6,3,.15),
+        worldBox((roomX-3+doorway-.46)/2,level+1.5,(roomZ+2)*facing,doorway-.46-(roomX-3),3,.15),
+        worldBox((doorway+.46+roomX+3)/2,level+1.5,(roomZ+2)*facing,roomX+3-doorway-.46,3,.15),
+        worldBox(roomX+.60,level+.40,roomZ*facing,2.60,.79,1.15),
+        worldBox(4.87,level+.53,-6.88*facing,3.17,1.04,1.69),
+        worldBox(7.92,level+.45,6.55*facing,2.0,.9,.84),
+        worldBox(9.0,level+.45,2.37*facing,.84,.90,2.0),
+        worldBox(-4.2,level+.45,-7.9*facing,2.0,.90,.84));
+      assets.place(floor,'lounge',{x:9.0,z:2.37*facing,y:.018,yaw:yaw-Math.PI/2});
+      assets.place(floor,'plant',{x:5.92,z:6.7*facing,y:.023,height:1.23});
+      assets.place(floor,'lounge',{x:-4.2,z:-7.9*facing,y:.018,yaw});
+      desk(floor,index,4.8,-3.21,true);
+      dashboard(floor,index,7.64,-3.85);
+    }else{
+      desk(floor,index,2.35,-2.1,true);
+      desk(floor,index,5.25,-1.8,false);
+      desk(floor,index,5,3.8,false);
+      desk(floor,index,-2.4,4.3,false);
+      dashboard(floor,index,5.38,-1.75);
+      assets.place(floor,'servers',{x:6.64,z:-7.0*facing,y:.012,yaw,width:5.25,depth:3.23,
+        onReady(model){
+          model.traverse(mesh=>{
+            if(!mesh.isMesh||!mesh.name.startsWith('leds_'))return;
+            mesh.material=mesh.material.clone();
+            rackLights.push(mesh.material);
+          });
+          model.getObjectByName('door').rotation.y=Math.PI*.49;
+        }});
+      solid.push(worldBox(6.64,level+1.34,-7.91*facing,5.27,2.67,1.48));
       for(const x of [-3.7,-.8]){
-        parts.push(['wood',x,1.47,-6.18*facing,2.12,2.92,.82]);
-        for(let shelf=0;shelf<4;shelf++){
-          parts.push(['pale',x,.43+shelf*.66,-5.70*facing,2.05,.078,.078]);
-          for(let b=0;b<5;b++)parts.push([['cream','wine','lime'][b%3],x-.75+b*.37,.62+shelf*.66,-5.65*facing,.23,.32,.25]);
-        }
-        solid.push(worldBox(x,level+1.47,-6.18*facing,2.12,2.92,.82));
+        assets.place(floor,'archive',{x,z:-6.16*facing,y:.019,yaw,height:2.45,width:1.88});
+        solid.push(worldBox(x,level+1.23,-6.16*facing,1.92,2.46,.71));
       }
-      parts.push(['silver',-6.4,.96,5.9*facing,2.35,1.82,.69],
-        ['cream',-6.4,1.88,5.9*facing,2.50,.10,.81],['wine',-6.72,2.14,5.9*facing,.55,.41,.48]);
+      block(floor,assets.materials.wood,-5.6,.49,7.81*facing,2.3,.94,.73);
+      assets.place(floor,'coffee',{x:-5.96,y:.98,z:7.81*facing,yaw:yaw+Math.PI});
+      assets.place(floor,'lounge',{x:-8.76,y:.017,z:5.39*facing,yaw:facing*Math.PI*.5});
+      assets.place(floor,'plant',{x:9.25,y:.017,z:6.7*facing,height:1.32});
+      solid.push(worldBox(-5.6,level+.49,7.81*facing,2.3,.95,.75));
     }
     bulk(floor,parts);
   }
@@ -183,13 +249,6 @@ export function buildOffice(THREE,plot,displays){
   const incidentTitle=bubble(THREE,incident,.10);
   incidentTitle.show('⚠ Разбор ошибки','#ff9299');
   incident.visible=false;
-  const signalPaint=new THREE.MeshBasicMaterial({color:0x42bba4,toneMapped:false});
-  for(let level=1;level<3;level++){
-    const at=floorGroups[level];
-    for(const x of [6.3,8.3])for(let i=0;i<5;i++)block(at,signalPaint,x+.39,.48+i*.36,-5.529*facing,.12,.065,.027);
-    block(at,signalPaint,8.28,3.13,-6.22*facing,.47,.26,.47);
-  }
-
   const cabin=group(root,shaft.x,floors[0],shaft.z);
   block(cabin,'silver',0,-.082,0,shaft.w-.13,.16,shaft.d-.13);
   block(cabin,amber,0,2.76,0,shaft.w-.15,.08,shaft.d-.19);
@@ -210,25 +269,15 @@ export function buildOffice(THREE,plot,displays){
 
   function person(index){
     const actor=group(root);
-    const body=group(actor);
-    const coat=[0x47648d,0x5a927d,0xa56f50,0x8e6890,0xb89060][index];
-    block(body,coat,0,1.11,0,.47,.64,.31);
-    const head=new THREE.Mesh(ball,color([0xe3af87,0xd89b6e,0xb27955,0xedba97,0xc58961][index]));
-    head.position.y=1.62;
-    body.add(head);
-    const legs=[], arms=[];
-    for(const side of [-1,1]){
-      const leg=group(body,side*.128,.73,0);
-      block(leg,'ink',0,-.325,0,.173,.65,.18); legs.push(leg);
-      const arm=group(body,side*.29,1.35,0);
-      block(arm,coat,0,-.237,0,.128,.48,.16); arms.push(arm);
-    }
-    const paper=block(arms[1],new THREE.MeshBasicMaterial({color:0x8be8ff,toneMapped:false}),0,-.49,.14,.39,.16,.33);
-    const cup=block(arms[0],'cream',0,-.48,.16,.123,.169,.12);
-    const packet=block(arms[1],new THREE.MeshBasicMaterial({color:0xffcf77,toneMapped:false}),0,-.51,.15,.37,.29,.33);
+    const rig=assets.character(actor,index,1.69+(index%3)*.04);
+    const paper=block(rig.hands,new THREE.MeshBasicMaterial({color:0x8be8ff}),0,-.035,.08,.29,.060,.24);
+    const cup=new THREE.Mesh(new THREE.CylinderGeometry(.058,.042,.113,16),color('cream'));
+    cup.position.set(0,.045,.07);
+    rig.hands.add(cup);
+    const packet=block(rig.hands,new THREE.MeshBasicMaterial({color:0xffcf77}),0,-.086,.08,.265,.21,.22);
     paper.visible=cup.visible=packet.visible=false;
-    const labelOffsets=[[-.60,3.02],[1.15,2.48],[.77,3.48],[-1.14,2.45],[.0,3.18]];
-    return {index,actor,body,arms,legs,paper,cup,packet,
+    const labelOffsets=[[-.60,2.63],[1.03,2.31],[.77,2.98],[-1.07,2.25],[.0,2.73]];
+    return {index,actor,rig,paper,cup,packet,
       bubble:bubble(THREE,actor,labelOffsets[index][1],labelOffsets[index][0])};
   }
   for(let i=0;i<5;i++)crew.push(person(i));
@@ -281,13 +330,18 @@ export function buildOffice(THREE,plot,displays){
     const visible=walking?Math.hypot(position.x-plot.x,position.z-plot.z)<26:focus;
     selected=walking?null:chosen;
     if(visible!==visiblePreviously){ root.visible=visible;visiblePreviously=visible; }
-    floorGroups.forEach((floor,index)=>{floor.visible=selected===null||selected===index;ceilings[index].visible=selected===null;});
+    floorGroups.forEach((floor,index)=>{
+      floor.visible=selected===null||selected===index;
+      ceilings[index].visible=selected===null;
+      const lit=walking?Math.abs(position.y-floors[index]-1.75)<3.25:index===selected;
+      for(const light of floor.userData.lights)light.visible=lit;
+    });
   }
 
   const placements={
-    idle:[[7.6,4.8],[5.6,4.9],[7.0,6.82],[-2.3,-3.8],[3.2,-3.6]],
+    idle:[[7.6,4.8],[5.6,4.9],[6.54,5.76],[-2.3,-3.8],[3.2,-3.6]],
     read_files:[[-3.7,-4.85],[-.7,-4.8],[3.2,1.1],[5.9,1.6],[-2.5,.4]],
-    write_code:[[2.35,-.89],[3.80,-.90],[5.35,-.86],[-2.4,3.14],[.48,1.84]],
+    write_code:[[2.35,-1.31],[3.30,-1.39],[5.25,-1.02],[-2.4,5.09],[.48,1.84]],
     run_tests:[[6.28,-4.57],[8.19,-4.54],[7.22,-3.41],[5.15,-3.57],[8.21,-2.88]],
     error:[[6.28,-4.57],[8.19,-4.54],[7.22,-3.47],[5.02,-3.59],[8.19,-2.88]],
     deploy_report:[[2.35,-.88],[4.2,1.26],[6.4,-3.4],[-2.3,2.7],[-3.6,3.7]],
@@ -354,14 +408,17 @@ export function buildOffice(THREE,plot,displays){
     const elapsed=motion?time-started:0;
     const target=stages[activity].level;
     const nearby=player&&Math.abs(player.x-plot.x-shaft.x)<3&&Math.abs(player.z-plot.z-shaft.z)<3.7;
-    signalPaint.color.setHex(activity==='error'?0xfd5868:activity==='run_tests'&&model.test_result==='success'?0x93ff83:0x6ce5ea);
-    if(activity==='error'||activity==='run_tests')signalPaint.color.multiplyScalar(.68+.32*Math.cos(elapsed*4.7)**2);
+    for(const paint of rackLights){
+      paint.emissive.setHex(activity==='error'?0xfb3451:model.test_result==='success'?0x62ec74:0x65bce4);
+      paint.emissiveIntensity=activity==='error'||activity==='run_tests'?1.5+1.5*Math.cos(elapsed*4.7)**2:1.1;
+    }
     for(const npc of crew){
       const {index,actor}=npc;
       const riding=index===4&&ride(npc,time,dt,motion,nearby);
       let walking=false;
+      let typing=false;
       npc.paper.visible=false;
-      npc.cup.visible=activity==='idle'||activity==='write_code'&&index===1;
+      npc.cup.visible=activity==='idle'&&index<3||activity==='write_code'&&index===1;
       npc.packet.visible=activity==='deploy_report'&&(index===4||index===0);
       if(!riding){
         let [x,z]=placements[activity][index];
@@ -370,22 +427,28 @@ export function buildOffice(THREE,plot,displays){
         if(activity==='read_files'&&index<2){
           const p=(elapsed*.24+index*.38)%1;
           const lane=p<.12?0:p<.5?(p-.12)/.38:p<.62?1:1-(p-.62)/.38;
-          x=x+(1.0+index*.8-x)*lane;
+          const dx=1.0+index*.8-x;
+          const dz=1.1-z;
+          x=x+dx*lane;
           z=z+(1.1-z)*lane;
           npc.paper.visible=p>=.11&&p<.62;
           walking=p>.12&&p<.5||p>.62;
+          actor.rotation.y=Math.atan2(dx,dz*facing)+(p>.62?Math.PI:0);
         }
         actor.position.set(x,floors[level],facing*z);
-        actor.rotation.y=index%2?facing*-.62:facing*.24;
-      }else walking=courier.mode!=='ride';
-      const wave=Math.sin(elapsed*(walking?10.7:4.2)+index*.67);
-      const gesture=(activity==='write_code'&&index<2)||activity==='error'||activity==='run_tests';
-      npc.legs[0].rotation.x=walking?wave*.45:0;
-      npc.legs[1].rotation.x=walking?-wave*.45:0;
-      npc.arms[0].rotation.x=npc.cup.visible?-.92:walking?wave*.35:gesture?-.62+wave*.16:-.04;
-      npc.arms[1].rotation.x=npc.paper.visible||npc.packet.visible?-1.02:activity==='write_code'&&index===1?-1.36-wave*.17:gesture?-.87-wave*.24:.04;
-      npc.body.position.y=walking?Math.abs(wave)*.061:0;
+        typing=activity==='write_code'&&[0,2,3].includes(index);
+        if(activity!=='read_files'||index>=2)actor.rotation.y=typing?yaw+Math.PI:yaw+(index%2?-.62:.24);
+      }else{
+        walking=courier.mode!=='ride';
+        actor.rotation.y=courier.mode==='approach'?-Math.PI/2:yaw+(courier.mode==='board'?Math.PI:0);
+      }
       actor.visible=selected===null||Math.abs(actor.position.y-floors[selected])<.22;
+      const carrying=npc.paper.visible||npc.packet.visible||npc.cup.visible;
+      const mode=typing?'typing':walking?(carrying?'carry-walk':'walk'):carrying?'carry':
+        activity==='error'||activity==='run_tests'?'gesture':'idle';
+      const close=player&&Math.hypot(player.x-plot.x-actor.position.x,player.z-plot.z-actor.position.z)<3.3;
+      npc.bubble.near(close);
+      if(actor.visible)npc.rig.update(motion?dt:0,mode,1.55,elapsed);
     }
   }
 
@@ -402,6 +465,7 @@ export function buildOffice(THREE,plot,displays){
     }[activity];
     const accent=activity==='error'?'#f87886':activity==='run_tests'&&model.test_result==='success'?'#a2f881':'#8ad7ff';
     crew.forEach((npc,i)=>npc.bubble.show(words[i],accent));
+    for(const {index,board} of dashboards)board.show(index===stages[activity].level?activity:'idle',model,index+1);
     for(const {index,display} of faces){
       const chosen=index===stages[activity].level;
       display.show(chosen?(model.title||stages[activity].label):'',chosen?model:undefined);
