@@ -3,6 +3,7 @@
 const telegram = window.Telegram?.WebApp;
 telegram?.ready();
 telegram?.expand();
+telegram?.disableVerticalSwipes?.();
 
 const elements = {
   app: document.querySelector('#app'),
@@ -42,11 +43,11 @@ const elements = {
 };
 
 const districts = {
-  hq: { name: 'Таймс-сквер · Эмпайр-стейт-билдинг', label: 'Таймс-сквер', description: 'Главный штаб в небоскрёбе ар-деко', color: '#ffcc91', x: 0, z: -7, height: 20.8, width: 9.3, depth: 8.5 },
-  moex: { name: 'MOEX · Биржевой терминал', label: 'MOEX', description: 'Архив данных, терминалы и серверы MOEX ISS', color: '#72aaff', x: -14, z: -13, height: 13.6, width: 9.4, depth: 8.5 },
-  grants: { name: 'Центр Грантов', label: 'Радар', description: 'Автоматическая проверка публикаций', color: '#67f5b0', x: 13, z: -14, height: 8.1, width: 9, depth: 8.5 },
-  dev: { name: 'Dev Lab', label: 'Dev Lab', description: 'Голографические терминалы и стенды для тестов', color: '#51eeff', x: -13.5, z: 10, height: 6.2, width: 9.4, depth: 8.5 },
-  lounge: { name: 'Cyber Lounge', label: 'Cyber Lounge', description: 'Тихая набережная для агентов в ожидании', color: '#fc93ee', x: 12.4, z: 8.7, height: 3, width: 11, depth: 9.2 },
+  hq: { name: 'Эмпайр-стейт-билдинг', label: 'Эмпайр-стейт', description: 'Кабинет тимлида и зал приёма сигналов.', color: 0xe4cda8, x: 0, z: -11, width: 10.7, depth: 9.2, height: 20.4 },
+  moex: { name: 'Биржа MOEX', label: 'MOEX', description: 'Биржевые терминалы, серверы и архив котировок.', color: 0xd4a387, x: -17, z: -12.8, width: 10, depth: 8, height: 8.2 },
+  grants: { name: 'Центр грантов', label: 'Радар', description: 'Читальный зал и мониторинг публикаций.', color: 0xb6c4aa, x: 16.5, z: -12, width: 9, depth: 7.5, height: 6.8 },
+  dev: { name: 'Dev Lab', label: 'Dev Lab', description: 'Столы разработчиков, тестовый стенд и серверная стойка.', color: 0xb38470, x: 16.3, z: 1.1, width: 10.8, depth: 7, height: 5.6 },
+  lounge: { name: 'Зимний парк', label: 'Парк', description: 'Сквер с ёлкой у жилой улицы.', color: 0x69977b, x: -15, z: .8, width: 11, depth: 7, height: 3.6 },
 };
 const actionNames = {
   folders: 'Работает с файлами',
@@ -61,14 +62,21 @@ const legacyActions = {
 };
 
 const profiles = [
-  { id: 'coder', title: 'Coder', color: '#56eddf' },
-  { id: 'tester', title: 'Tester', color: '#ffce82' },
-  { id: 'reporter', title: 'Reporter', color: '#edabff' },
-  { id: 'lead', title: 'Тимлид', color: '#83abff' },
-  { id: 'scout', title: 'Scout', color: '#d4ff91' },
+  { id: 'coder', title: 'Coder', color: '#427868', home: { x: -11, color: 0xa9bbae, roof: 0x47665c } },
+  { id: 'tester', title: 'QA', color: '#ad654f', home: { x: 11, color: 0xd29b83, roof: 0x83594c } },
+  { id: 'reporter', title: 'Reporter', color: '#795f8b', home: { x: -22, color: 0xd8dbea, roof: 0x6d6280 } },
+  { id: 'lead', title: 'Тимлид', color: '#426898', home: { x: 0, color: 0xe1c497, roof: 0x657e92 } },
+  { id: 'scout', title: 'Scout', color: '#a77a39', home: { x: 22, color: 0xc3c09d, roof: 0x6a775f } },
   { id: 'job-moex', title: 'Сбор MOEX', color: '#72aaff', job: 'moex' },
   { id: 'job-grants', title: 'Радар грантов', color: '#67f5b0', job: 'grants' },
 ];
+
+for (const profile of profiles.filter(item => item.home)) {
+  districts[profile.id + '-home'] = {
+    name: 'Дом · ' + profile.title, label: profile.title, description: 'Гостиная, рабочий стол и место для отдыха.',
+    ...profile.home, z: 15.8, width: 6.1, depth: 5.3, height: 5, home: true,
+  };
+}
 
 const empty = { action: 'idle', district: 'lounge', detail: '', files: [] };
 const demoSnapshot = {
@@ -93,6 +101,7 @@ const orbitalLabels = {
   blocked: 'Нужно внимание',
 };
 let relayStatus;
+let relayTimer;
 const reducedMotion = matchMedia('(prefers-reduced-motion: reduce)');
 const local = location.origin === 'http://127.0.0.1:8765';
 const endpoint = local ? location.origin : window.OFFICE_CONFIG?.tunnel;
@@ -140,7 +149,7 @@ function normalize(row, profile) {
   const oldAction = Object.hasOwn(legacyActions, row?.phase) ? legacyActions[row.phase] : 'idle';
   const action = Object.hasOwn(actionNames, row?.action) ? row.action : oldAction;
   const project = ['moex', 'grants', 'dev'].includes(row?.project) ? row.project : profile.job;
-  const district = action === 'idle' ? 'lounge' : profile.id === 'lead' ? 'hq' : (project ?? 'dev');
+  const district = action === 'idle' ? (profile.home ? profile.id + '-home' : 'lounge') : profile.id === 'lead' ? 'hq' : (project ?? 'dev');
   return {
     action, district,
     phase: row?.phase,
@@ -153,7 +162,7 @@ function stateLabel(row) {
   return row.phase === 'blocked' ? 'Нужна помощь' : actionNames[row.action];
 }
 
-function apply(snapshot) {
+function apply(snapshot, snap = false) {
   rows = new Map(profiles.map(profile => [
     profile.id,
     normalize(profile.job ? snapshot.jobs?.[profile.job] : snapshot.agents?.[profile.id], profile),
@@ -182,15 +191,22 @@ function apply(snapshot) {
   }));
   elements.jobs.hidden = !jobs.length;
   const nextRelay = snapshot.relay;
-  relayStatus = nextRelay && Object.hasOwn(orbitalLabels, nextRelay.stage) ? nextRelay : null;
+  const showRelay = nextRelay && Object.hasOwn(orbitalLabels, nextRelay.stage);
+  const terminal = ['sent', 'blocked'].includes(nextRelay?.stage);
+  const expiresIn = 90000 - (Date.now() - Date.parse(nextRelay?.updatedAt));
+  relayStatus = showRelay && (!terminal || expiresIn > 0) ? nextRelay : null;
+  clearTimeout(relayTimer);
+  if (relayStatus && terminal) {
+    relayTimer = setTimeout(() => { elements.orbital.hidden = true; }, expiresIn);
+  }
   elements.orbital.hidden = !relayStatus;
   if (relayStatus) {
     elements.orbital.dataset.stage = relayStatus.stage;
     elements.orbitalStage.textContent = orbitalLabels[relayStatus.stage];
     elements.orbitalDetail.textContent = typeof relayStatus.detail === 'string' ? relayStatus.detail : '';
   }
-  city?.update(rows, relayStatus);
-  if (selectedAgent && rows.get(selectedAgent)?.district !== selected) selectAgent(selectedAgent);
+  city?.update(rows, relayStatus, snap);
+  if (selectedAgent) showDistrict(rows.get(selectedAgent)?.district, selectedAgent);
   else updateInspection();
 }
 
@@ -208,26 +224,27 @@ function updateConnectionLabel() {
 function showDemo() {
   clearTimeout(demoInterval);
   const stages = [
-    ['receiving', 'Задание приходит в Эмпайр-стейт-билдинг', demoSnapshot, 4600],
+    ['receiving', 'Задание приходит в Эмпайр-стейт-билдинг', { agents: { lead: { action: 'folders', detail: 'Получает поручение' } } }, 4300],
     ['working', 'Агенты забрали задание в штабе', demoSnapshot, 10500],
     ['returning', 'Reporter вернул результат в штаб', demoSignal, 5500],
   ];
   function play(index) {
     const [stage, detail, snapshot, duration] = stages[index];
     apply({ ...snapshot, relay: { stage, detail, project: 'dev', updatedAt: new Date().toISOString() } });
-    if (!reducedMotion.matches) demoInterval = setTimeout(() => play((index + 1) % stages.length), duration);
+    demoInterval = setTimeout(() => play((index + 1) % stages.length), duration);
   }
   play(0);
 }
 
 function acceptLive(state) {
   if (!state?.agents || typeof state.agents !== 'object') return false;
+  const firstSnapshot = !liveData;
   liveData = state;
   connecting = false;
   liveFailure = false;
   if (!forcedDemo) {
     clearTimeout(demoInterval);
-    apply(state);
+    apply(state, firstSnapshot);
   }
   updateConnectionLabel();
   return true;
@@ -294,7 +311,7 @@ function selectAgent(id) {
   selectDistrict((rows.get(id) ?? empty).district, id);
 }
 
-function selectDistrict(id, agentId) {
+function showDistrict(id, agentId) {
   selected = id;
   selectedAgent = agentId;
   if (id) elements.app.dataset.focused = '';
@@ -304,25 +321,29 @@ function selectDistrict(id, agentId) {
   if (id) {
     const district = districts[id];
     elements.panel.style.setProperty('--district-color', district.color);
-    elements.panelMode.textContent = city ? 'РЕНТГЕН' : 'РАЙОН';
+    elements.panelMode.textContent = agentId ? 'Камера агента' : id === 'lounge' ? 'Сквер' : 'Интерьер';
     elements.panelName.textContent = district.name;
     elements.panelText.textContent = district.description;
   }
   updateInspection();
+}
+
+function selectDistrict(id, agentId) {
+  showDistrict(id, agentId);
   city?.select(id, agentId);
 }
 
 function toggleDemo() {
   forcedDemo = !forcedDemo;
   elements.demo.setAttribute('aria-pressed', String(forcedDemo));
-  elements.demoLabel.textContent = forcedDemo ? 'Рабочий режим' : 'Демо-режим (Экшн)';
+  elements.demoLabel.textContent = forcedDemo ? 'Рабочий режим' : 'Демо';
   clearTimeout(demoInterval);
   if (forcedDemo) {
-    apply({ agents: {} });
+    apply({ agents: {} }, true);
     showDemo();
     selectDistrict(null);
   } else if (liveData) {
-    apply(liveData);
+    apply(liveData, true);
   } else {
     showDemo();
     connect();
@@ -390,1095 +411,925 @@ document.addEventListener('visibilitychange', () => {
   if (!document.hidden && socket?.readyState !== WebSocket.OPEN) connect();
 });
 
+const boardToggle = document.getElementById('board-toggle');
+const board = document.getElementById('board');
+const settings = document.getElementById('settings-dialog');
+const musicButton = document.getElementById('music-toggle');
+const field = Object.fromEntries(['light', 'transport', 'snow', 'music', 'volume'].map(id => [id, document.getElementById(id)]));
+const defaults = Object.freeze({ light: 'day', transport: 'mixed', snow: true, volume: 30 });
+const storageKey = 'ai-hub-winter-v1';
+let townOptions = { ...defaults };
+let drag;
+let skipClick = false;
+let musicEnabled = false;
+let audio;
+let musicMix;
+let musicTimer;
+let songIndex = 0;
+
+try {
+  const saved = JSON.parse(localStorage.getItem(storageKey));
+  if (['day', 'auto', 'dusk', 'night'].includes(saved?.light)) townOptions.light = saved.light;
+  if (['mixed', 'walk', 'car'].includes(saved?.transport)) townOptions.transport = saved.transport;
+  if (typeof saved?.snow === 'boolean') townOptions.snow = saved.snow;
+  if (Number.isFinite(saved?.volume)) townOptions.volume = Math.min(100, Math.max(0, saved.volume));
+} catch {
+  // Browser privacy settings may disable persistent preferences.
+}
+
+function setFolded(folded) {
+  elements.app.toggleAttribute('data-folded', folded);
+  boardToggle.setAttribute('aria-expanded', String(!folded));
+  document.getElementById('board-label').textContent = folded ? 'Показать панель' : 'Свернуть панель';
+  board.inert = folded;
+  city?.layout();
+}
+
+boardToggle.addEventListener('pointerdown', event => {
+  if (!event.isPrimary || event.button !== 0) return;
+  drag = { id: event.pointerId, start: event.clientY };
+  boardToggle.setPointerCapture(event.pointerId);
+});
+boardToggle.addEventListener('pointerup', event => {
+  if (drag?.id !== event.pointerId) return;
+  const distance = event.clientY - drag.start;
+  drag = undefined;
+  if (Math.abs(distance) < 24) return;
+  setFolded(distance > 0);
+  skipClick = true;
+  setTimeout(() => { skipClick = false; }, 350);
+});
+boardToggle.addEventListener('pointercancel', () => { drag = undefined; });
+boardToggle.addEventListener('click', () => {
+  if (skipClick) { skipClick = false; return; }
+  setFolded(!elements.app.hasAttribute('data-folded'));
+});
+document.addEventListener('keydown', event => {
+  if (event.key !== 'Escape' || settings.open || elements.dialog.open) return;
+  if (elements.app.hasAttribute('data-folded')) setFolded(false);
+  else if (selected) selectDistrict(null);
+});
+
+function refreshSettings() {
+  field.light.value = townOptions.light;
+  field.transport.value = townOptions.transport;
+  field.snow.checked = townOptions.snow;
+  field.music.checked = musicEnabled;
+  field.volume.value = townOptions.volume;
+  document.getElementById('volume-value').value = townOptions.volume + '%';
+  musicButton.setAttribute('aria-pressed', String(musicEnabled));
+  musicButton.setAttribute('aria-label', musicEnabled ? 'Выключить музыку' : 'Включить музыку');
+}
+
+function updateOptions() {
+  try { localStorage.setItem(storageKey, JSON.stringify(townOptions)); } catch {}
+  city?.setOptions(townOptions);
+  if (musicMix) musicMix.gain.setTargetAtTime(townOptions.volume / 100 * .36, audio.currentTime, .04);
+  refreshSettings();
+}
+
+function applyLight() {
+  const hour = new Date().getHours();
+  const light = townOptions.light === 'auto' ? (hour >= 8 && hour < 17 ? 'day' : hour >= 17 && hour < 20 ? 'dusk' : 'night') : townOptions.light;
+  elements.app.dataset.light = light;
+  document.querySelector('meta[name="theme-color"]').content = { day: '#e8f0f5', dusk: '#ac9bbd', night: '#354660' }[light];
+  return light;
+}
+
+const bells = [
+  [64,1],[64,1],[64,2],[64,1],[64,1],[64,2],[64,1],[67,1],[60,1.5],[62,.5],[64,3],[0,1],
+  [65,1],[65,1],[65,1.5],[65,.5],[65,1],[64,1],[64,1],[64,.5],[64,.5],[67,1],[67,1],[65,1],[62,1],[60,3],[0,2],
+];
+const bass = [48,55,48,53,48,55,48];
+function playBell() {
+  const [note, beats] = bells[songIndex % bells.length];
+  const time = audio.currentTime + .025;
+  if (note) soundBell(note, time, 1.6, .19, 'sine');
+  if (songIndex % 4 === 0) soundBell(bass[Math.floor(songIndex / 4) % bass.length], time, 1.8, .13, 'triangle');
+  songIndex = (songIndex + 1) % bells.length;
+  musicTimer = setTimeout(playBell, 420 * beats);
+}
+
+function soundBell(note, at, length, level, type) {
+  const oscillator = audio.createOscillator();
+  const envelope = audio.createGain();
+  oscillator.type = type;
+  oscillator.frequency.value = 440 * 2 ** ((note - 69) / 12);
+  envelope.gain.setValueAtTime(.0001, at);
+  envelope.gain.exponentialRampToValueAtTime(level, at + .035);
+  envelope.gain.exponentialRampToValueAtTime(.0001, at + length);
+  oscillator.connect(envelope).connect(musicMix);
+  oscillator.start(at);
+  oscillator.stop(at + length);
+}
+
+async function toggleMusic(enabled) {
+  musicEnabled = enabled;
+  clearTimeout(musicTimer);
+  if (!enabled) {
+    if (musicMix) musicMix.gain.setTargetAtTime(0, audio.currentTime, .04);
+    refreshSettings();
+    return;
+  }
+  try {
+    const Audio = window.AudioContext ?? window.webkitAudioContext;
+    audio ??= new Audio();
+    await audio.resume();
+    if (!musicEnabled || document.hidden) return;
+    if (!musicMix) {
+      musicMix = audio.createGain();
+      musicMix.connect(audio.destination);
+    }
+    musicMix.gain.setTargetAtTime(townOptions.volume / 100 * .36, audio.currentTime, .04);
+    clearTimeout(musicTimer);
+    playBell();
+  } catch {
+    musicEnabled = false;
+  } finally {
+    refreshSettings();
+  }
+}
+
+for (const name of ['light', 'transport', 'snow', 'volume']) {
+  field[name].addEventListener(name === 'volume' ? 'input' : 'change', () => {
+    townOptions[name] = name === 'snow' ? field[name].checked : name === 'volume' ? Number(field[name].value) : field[name].value;
+    applyLight();
+    updateOptions();
+  });
+}
+field.music.addEventListener('change', () => toggleMusic(field.music.checked));
+musicButton.addEventListener('click', () => toggleMusic(!musicEnabled));
+document.getElementById('settings-toggle').addEventListener('click', () => settings.showModal());
+document.getElementById('reset-settings').addEventListener('click', () => {
+  townOptions = { ...defaults };
+  void toggleMusic(false);
+  applyLight();
+  updateOptions();
+});
+document.addEventListener('visibilitychange', () => {
+  if (document.hidden) clearTimeout(musicTimer);
+  else if (musicEnabled) void toggleMusic(true);
+});
+setInterval(() => { if (townOptions.light === 'auto') city?.setOptions(townOptions); }, 30000);
+applyLight();
+refreshSettings();
+
+
 updateConnectionLabel();
-showDemo();
+if (canConnect) apply({ agents: {} }, true);
+else showDemo();
 connect();
 
 Promise.all([import('three'), import('three/addons/controls/OrbitControls.js')])
   .then(([THREE, { OrbitControls }]) => {
     city = createCity(THREE, OrbitControls);
-    city.update(rows, relayStatus);
+    city.update(rows, relayStatus, Boolean(liveData));
+    city.setOptions(townOptions);
     if (selected) selectDistrict(selected, selectedAgent);
   })
   .catch(() => {
     elements.world.dataset.fallback = 'true';
     elements.canvas.hidden = true;
-    elements.help.textContent = '3D недоступно. Районы можно выбрать кнопками.';
+    elements.help.textContent = '3D недоступно. Задачи и статусы доступны в панели.';
+    elements.help.hidden = false;
   });
 
 function createCity(THREE, OrbitControls) {
-  const V = (...coordinates) => new THREE.Vector3(...coordinates);
+  const vec = (x = 0, y = 0, z = 0) => new THREE.Vector3(x, y, z);
   const scene = new THREE.Scene();
-  scene.fog = new THREE.FogExp2(0x0b1127, .012);
-  const renderer = new THREE.WebGLRenderer({ canvas: elements.canvas, antialias: true, alpha: true });
-  renderer.setClearColor(0x090f23, 0);
-  renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, 1.7));
+  scene.fog = new THREE.Fog(0xcfdfeb, 92, 155);
+  const renderer = new THREE.WebGLRenderer({ canvas: elements.canvas, antialias: true, alpha: true, powerPreference: 'low-power' });
+  renderer.setPixelRatio(Math.min(devicePixelRatio || 1, 1.6));
   renderer.outputColorSpace = THREE.SRGBColorSpace;
   renderer.toneMapping = THREE.ACESFilmicToneMapping;
-  renderer.toneMappingExposure = 1.35;
-
-  const camera = new THREE.OrthographicCamera(-30, 30, 30, -30, .1, 250);
+  renderer.toneMappingExposure = 1.1;
+  const camera = new THREE.OrthographicCamera(-36, 36, 23, -23, .1, 220);
   const controls = new OrbitControls(camera, elements.canvas);
   controls.enableDamping = true;
-  controls.dampingFactor = .09;
   controls.enablePan = false;
-  controls.minPolarAngle = .38;
-  controls.maxPolarAngle = 1.24;
-  controls.minZoom = .75;
-  controls.maxZoom = 13;
-  const widePosition = V(45, 42, 55);
-  const wideCenter = V(0, 4, 0);
-  camera.position.copy(widePosition);
-  controls.target.copy(wideCenter);
+  controls.minPolarAngle = .37;
+  controls.maxPolarAngle = 1.37;
+  controls.minZoom = .64;
+  controls.maxZoom = 12;
+  const angle = vec(34, 43, 57);
+  const center = vec(0, 2.1, -.6);
+  controls.target.copy(center);
+  camera.position.copy(center).add(angle);
   controls.update();
 
-  scene.add(new THREE.HemisphereLight(0xb9d9ff, 0x24234b, 2.5));
-  const moon = new THREE.DirectionalLight(0xc5daff, 3.2);
-  moon.position.set(10, 25, 12);
-  scene.add(moon);
-  const rim = new THREE.DirectionalLight(0x9a73ff, 1.05);
-  rim.position.set(-20, 15, -8);
-  scene.add(rim);
+  const sky = new THREE.HemisphereLight(0xe6f7ff, 0xa3ab9d, 1.5);
+  const sun = new THREE.DirectionalLight(0xffeed2, 2.15);
+  sun.position.set(-25, 35, 13);
+  const fill = new THREE.DirectionalLight(0xc5ddf9, .64);
+  fill.position.set(13, 8, -10);
+  scene.add(sky, sun, fill);
 
-  const materials = new Map();
-  function paint(color, shine = false) {
-    const key = String(color) + (shine ? ' lit' : '');
-    if (!materials.has(key)) materials.set(key, shine
-      ? new THREE.MeshBasicMaterial({ color })
-      : new THREE.MeshStandardMaterial({ color, roughness: .75, metalness: .26 }));
-    return materials.get(key);
+  const palette = new Map();
+  const unit = new THREE.BoxGeometry(1, 1, 1);
+  const ball = new THREE.SphereGeometry(1, 10, 7);
+  const point = new THREE.ConeGeometry(1, 1, 8);
+  function paint(color) {
+    if (!palette.has(color)) palette.set(color, new THREE.MeshStandardMaterial({ color, roughness: .83 }));
+    return palette.get(color);
   }
-
-  const unitBox = new THREE.BoxGeometry();
-  function box(parent, material, x, y, z, w, h, d) {
-    const object = new THREE.Mesh(unitBox, material);
-    object.position.set(x, y, z);
-    object.scale.set(w, h, d);
-    parent.add(object);
-    return object;
-  }
-
-  const unitCylinder = new THREE.CylinderGeometry(1, 1, 1, 12);
-  function cylinder(parent, material, x, y, z, radius, height) {
-    const object = new THREE.Mesh(unitCylinder, material);
-    object.position.set(x, y, z);
-    object.scale.set(radius, height, radius);
-    parent.add(object);
-    return object;
-  }
-
-  function rod(parent, material, start, end, radius) {
-    const axis = end.clone().sub(start);
-    const middle = start.clone().lerp(end, .5);
-    const object = cylinder(parent, material, middle.x, middle.y, middle.z, radius, axis.length());
-    object.quaternion.setFromUnitVectors(V(0, 1, 0), axis.normalize());
-    return object;
-  }
-
-  function ring(parent, material, x, y, z, radius, tube = .04) {
-    const object = new THREE.Mesh(new THREE.TorusGeometry(radius, tube, 8, 32), material);
-    object.rotation.x = Math.PI / 2;
+  const places = new Map();
+  function group(parent, x = 0, y = 0, z = 0) {
+    const object = new THREE.Group();
     object.position.set(x, y, z);
     parent.add(object);
     return object;
   }
-
-  function path(parent, points, color, opacity = 1) {
-    const material = new THREE.LineBasicMaterial({ color, transparent: opacity < 1, opacity });
-    const line = new THREE.Line(new THREE.BufferGeometry().setFromPoints(points), material);
-    parent.add(line);
-    return line;
+  function solid(parent, geometry, color, x, y, z, sx, sy, sz) {
+    const mesh = new THREE.Mesh(geometry, typeof color === 'object' ? color : paint(color));
+    mesh.position.set(x, y, z);
+    mesh.scale.set(sx, sy, sz);
+    parent.add(mesh);
+    return mesh;
+  }
+  function box(parent, color, x, y, z, w, h, d) {
+    return solid(parent, unit, color, x, y, z, w, h, d);
   }
 
-  function art(width, height, draw) {
-    const raster = document.createElement('canvas');
-    raster.width = width;
-    raster.height = height;
-    const context = raster.getContext('2d');
-    draw(context, raster);
-    const texture = new THREE.CanvasTexture(raster);
-    texture.colorSpace = THREE.SRGBColorSpace;
-    return { raster, context, texture };
-  }
+  const snow = 0xeaf3f5;
+  const powder = 0xf8fbfa;
+  const timber = 0x9e7655;
+  const trim = 0xf6e9d4;
+  const pane = new THREE.MeshStandardMaterial({ color: 0x7899a7, roughness: .38, metalness: .13, emissive: 0xffb46e, emissiveIntensity: .06 });
+  const bulbs = [0xf1915f, 0x619975, 0xf5ce78, 0xffe3ac].map(color => new THREE.MeshStandardMaterial({ color, emissive: color, emissiveIntensity: .38 }));
+  const base = group(scene);
+  box(base, 0x9eb6c0, 0, -.81, 0, 64, 1.38, 49);
+  box(base, snow, 0, -.092, 0, 64.25, .29, 49.25);
 
-  function panel(parent, material, x, y, z, w, h, rotate = 0) {
-    const surface = new THREE.Mesh(new THREE.PlaneGeometry(w, h), material);
-    surface.position.set(x, y, z);
-    surface.rotation.y = rotate;
-    parent.add(surface);
-    return surface;
+  function street(x, z, w, d) {
+    box(base, 0xaebec6, x, .073, z, w, .12, d);
+    box(base, 0x626e76, x, .125, z, w - .8, .072, d - .8);
   }
-
-  const ground = new THREE.Group();
-  scene.add(ground);
-  box(ground, paint(0x0c152d), 0, -.42, 0, 66, .8, 57);
-  box(ground, paint(0x111a33), 0, -.09, -.8, 64, .2, 54);
-  const grid = new THREE.GridHelper(62, 45, 0x43527f, 0x2d3c63);
-  grid.position.set(0, .021, -1);
-  grid.material.transparent = true;
-  grid.material.opacity = .35;
-  ground.add(grid);
-
-  const road = paint(0x0a1228);
-  const curb = paint(0x283e69);
-  const lane = paint(0x496caa, true);
-  for (const x of [-24, -6.8, 7, 23.7]) {
-    box(ground, road, x, .035, -1.5, 2.7, .04, 52);
-    for (const edge of [-1.34, 1.34]) box(ground, curb, x + edge, .073, -1.5, .10, .07, 52);
-    for (let z = -26; z < 23; z += 3.7) box(ground, lane, x, .066, z, .066, .027, .88);
-  }
-  for (const z of [-22.8, -1, 19.5]) {
-    box(ground, road, 0, .083, z, 60, .045, 2.6);
-    for (const edge of [-1.29, 1.29]) box(ground, curb, 0, .116, z + edge, 60, .052, .07);
-    for (let x = -28.5; x < 29; x += 4) box(ground, lane, x, .111, z, 1, .02, .07);
-  }
-
-  let randomState = 3301;
-  function random() {
-    randomState = (Math.imul(randomState, 1664525) + 1013904223) >>> 0;
-    return randomState / 4294967296;
-  }
-
-  const skylineTexture = art(64, 128, (context) => {
-    context.fillStyle = '#142545';
-    context.fillRect(0, 0, 64, 128);
-    for (let y = 3; y < 128; y += 10) {
-      for (let x = 4; x < 64; x += 12) {
-        context.fillStyle = random() > .58 ? '#507dec' : '#253b6b';
-        context.fillRect(x, y, 6, 3.5);
-      }
+  street(0, -3.2, 4.8, 43.4);
+  street(0, 7.9, 59, 4.7);
+  street(0, -5.7, 57, 3.8);
+  street(0, 21.35, 59, 3.4);
+  for (const z of [7.9, -5.7, 21.35]) {
+    for (let x = -27; x < 28; x += 3.3) {
+      if (Math.abs(x) > 4.2) box(base, 0xcbd2ca, x, .176, z, 1.13, .025, .07);
     }
-  }).texture;
-  const towerBlock = new THREE.MeshStandardMaterial({ color: 0x7d91ce, map: skylineTexture, roughness: .8 });
-  for (let i = 0; i < 30; i++) {
-    const back = i < 17;
-    const x = back ? -30 + i * 3.75 : i < 24 ? -28.5 : 28;
-    const z = back ? -27.7 - random() * 2.8 : -23 + ((i - 17) % 7) * 5.6;
-    const height = 1.15 + random() * (back ? 8.8 : 3.2);
-    const width = 1.2 + random() * 1.35;
-    box(ground, towerBlock, x, height / 2, z, width, height, 1.85);
-    if (i % 3 === 0) box(ground, paint(i % 2 ? 0xb9a3ff : 0x6b96ea, true), x, height + .04, z, .33, .12, .33);
+  }
+  for (const z of [5.15, 10.75, -7.9, 19.2]) {
+    box(base, 0xcdd9dd, 0, .091, z, 57.5, .13, .92);
+  }
+  for (const z of [5.9, 9.9, -7.3]) {
+    for (let x = -1.52; x <= 1.53; x += .61) box(base, 0xf6eee5, x, .181, z, .32, .029, 1.06);
   }
 
-  const streets = new THREE.InstancedMesh(unitBox, paint(0x6ca9ef, true), 60);
-  const matrix = new THREE.Matrix4();
-  for (let index = 0; index < streets.count; index++) {
-    const laneIndex = index % 4;
-    const x = [-26, -8.7, 9, 25.6][laneIndex];
-    const z = -23.6 + Math.floor(index / 4) * 3.3;
-    streets.setMatrixAt(index, matrix.makeScale(.11, .17, .34).setPosition(x, .13, z));
-  }
-  ground.add(streets);
-
-  const staticBoxes = new Map();
-  for (const object of ground.children) {
-    if (object.geometry !== unitBox || object.isInstancedMesh) continue;
-    const group = staticBoxes.get(object.material) ?? [];
-    group.push(object);
-    staticBoxes.set(object.material, group);
-  }
-  for (const [material, objects] of staticBoxes) {
-    if (objects.length < 3) continue;
-    const batch = new THREE.InstancedMesh(unitBox, material, objects.length);
-    for (const [index, object] of objects.entries()) {
-      object.updateMatrix();
-      batch.setMatrixAt(index, object.matrix);
-      ground.remove(object);
-    }
-    ground.add(batch);
-  }
-
-  function createFacade(color, ink) {
-    return art(128, 256, (context) => {
-      context.fillStyle = ink;
-      context.fillRect(0, 0, 128, 256);
-      for (let y = 5; y < 256; y += 21) {
-        for (let x = 7; x < 128; x += 21) {
-          const active = random() > .4;
-          context.globalAlpha = active ? .74 : .13;
-          context.fillStyle = color;
-          context.fillRect(x, y, 12, 5);
-          context.globalAlpha = .88;
-          context.fillStyle = '#11213b';
-          context.fillRect(x, y + 6, 12, 6);
+  function pine(parent, x, y, z, size = 1, holiday = false) {
+    const tree = group(parent, x, y, z);
+    tree.scale.setScalar(size);
+    box(tree, 0x785b48, 0, .48, 0, .22, .95, .22);
+    for (let level = 0; level < 3; level++) {
+      const radius = 1.01 - level * .21;
+      const height = 1.42 - level * .14;
+      const bottom = .63 + level * .66;
+      solid(tree, point, [0x3f6b5d, 0x49786b, 0x548270][level], 0, bottom + height / 2, 0, radius, height, radius);
+      solid(tree, point, powder, 0, bottom + height * .64, 0, radius * .77, height * .77, radius * .77);
+      if (holiday) {
+        for (let n = 0; n < 6; n++) {
+          const theta = n * Math.PI / 3 + level * .64;
+          solid(tree, ball, bulbs[(level + n) % bulbs.length], Math.cos(theta) * radius * .79, bottom + .23, Math.sin(theta) * radius * .79, .073, .073, .073);
         }
       }
-      context.globalAlpha = .46;
-      context.fillStyle = color;
-      context.fillRect(3, 0, 1.6, 256);
-      context.fillRect(124, 0, 1.6, 256);
-    }).texture;
+    }
+    if (holiday) solid(tree, ball, bulbs[2], 0, 3.13, 0, .16, .16, .16);
+    return tree;
+  }
+  function lamp(parent, x, z) {
+    const post = 0x4b5e60;
+    box(parent, post, x, 1.17, z, .088, 2.3, .088);
+    box(parent, yellowGlass, x, 2.37, z, .21, .28, .21);
+    box(parent, post, x, 2.53, z, .28, .07, .28);
+  }
+  const yellowGlass = new THREE.MeshStandardMaterial({ color: 0xffdb9e, emissive: 0xffba64, emissiveIntensity: .3 });
+  for (const x of [-24, -16, -8, 8, 16, 24]) {
+    lamp(base, x + .3, 5.13);
+    if (x % 16 !== 0) pine(base, x + 2, .08, 10.6, .62);
+  }
+  for (const [x, z, size] of [[-29,-20,1.24],[-25,-19,.85],[-12,-20,1.15],[-8,-21,1.1],[7,-20,1],[12,-21,.88],[24,-18,1.22],[27,-16,1.04],[29,-2,1.05],[-29,13,.91],[29,16,1.2],[-29,21,.9]]) {
+    pine(base, x, .06, z, size);
   }
 
-  const pickMaterial = new THREE.MeshBasicMaterial({ colorWrite: false, depthWrite: false });
-  const buildings = new Map();
-  const hitboxes = [];
-  let updateRadar = () => {};
-  let updateTicker = () => {};
-  let updateWater = () => {};
+  function batchBoxes(parent) {
+    const byMaterial = new Map();
+    for (const object of parent.children) {
+      if (object.geometry !== unit || object.isInstancedMesh) continue;
+      const list = byMaterial.get(object.material) ?? [];
+      list.push(object);
+      byMaterial.set(object.material, list);
+    }
+    for (const [material, objects] of byMaterial) {
+      if (objects.length < 4) continue;
+      const batch = new THREE.InstancedMesh(unit, material, objects.length);
+      objects.forEach((object, index) => {
+        object.updateMatrix();
+        batch.setMatrixAt(index, object.matrix);
+        parent.remove(object);
+      });
+      parent.add(batch);
+    }
+  }
 
-  function makeBuilding(id, district) {
-    const group = new THREE.Group();
-    group.position.set(district.x, 0, district.z);
-    scene.add(group);
+  function holidayMarket() {
+    const square = group(base, -6.23, .08, -.75);
+    box(square, 0xc7d2ce, 0, .09, 0, 5.43, .14, 5.23);
+    for (const x of [-1.35, 1.34]) {
+      const booth = group(square, x, 0, -.73);
+      const color = x < 0 ? 0xa36856 : 0x5f8573;
+      box(booth, color, 0, .44, 0, 1.83, .68, 1.22);
+      box(booth, timber, 0, .82, .12, 1.92, .12, 1.37);
+      for (const side of [-.87, .87]) {
+        box(booth, color, side, 1.29, .52, .11, .96, .11);
+        box(booth, color, side, 1.29, -.54, .11, .96, .11);
+      }
+      roof(booth, color, 1.96, 1.46, 1.72, .55);
+      roof(booth, powder, 2.02, 1.49, 1.8, .55);
+      for (let light = 0; light < 5; light++) solid(booth, ball, bulbs[light % bulbs.length], (light - 2) * .38, 1.71, .77, .07, .07, .07);
+      box(booth, 0xc68a65, -.36, .93, .37, .21, .16, .19);
+      box(booth, 0x728a74, .12, .92, .41, .29, .13, .22);
+    }
+    for (const [x, z] of [[-1.80, 1.41], [1.75, 1.24]]) {
+      const table = group(square, x, .16, z);
+      box(table, 0x676f68, 0, .42, 0, .12, .77, .12);
+      box(table, timber, 0, .83, 0, .71, .096, .70);
+      solid(table, ball, yellowGlass, .18, .93, .1, .087, .076, .087);
+    }
+    pine(square, 0, .11, 1.74, .62, true);
+  }
+  holidayMarket();
+  batchBoxes(base);
+
+  function windowSet(parent, coords, size, side = false) {
+    const [w, h] = size;
+    const layers = [[trim, w + .11, h + .12, 0, 0], [pane, w, h, .055, 0], [trim, .045, h, .082, 0], [trim, w, .047, .085, 0], [trim, w + .2, .07, .085, -h / 2 - .07]];
+    const transform = new THREE.Object3D();
+    transform.rotation.y = side ? Math.PI / 2 : 0;
+    for (const [material, sx, sy, normal, dy] of layers) {
+      const layer = new THREE.InstancedMesh(unit, typeof material === 'object' ? material : paint(material), coords.length);
+      coords.forEach(([x, y, z], index) => {
+        transform.position.set(x + (side ? normal : 0), y + dy, z + (side ? 0 : normal));
+        transform.scale.set(sx, sy, .063);
+        transform.updateMatrix();
+        layer.setMatrixAt(index, transform.matrix);
+      });
+      parent.add(layer);
+    }
+  }
+
+  function apartment(info, x, y, z, w, h, d, wall, columns, floors) {
+    box(info.exterior, wall, x, y + h / 2, z, w, h, d);
+    box(info.exterior, trim, x, y + h - .065, z, w + .16, .12, d + .16);
+    box(info.exterior, powder, x, y + h + .05, z, w + .27, .12, d + .27);
+    const face = [], side = [];
+    for (let level = 0; level < floors; level++) {
+      const wy = y + (.64 + level) * h / (floors + .18);
+      for (let col = 0; col < columns; col++) {
+        const fraction = (col + 1) / (columns + 1) - .5;
+        face.push([x + fraction * w, wy, z + d / 2]);
+        side.push([x + w / 2, wy, z + fraction * d]);
+      }
+    }
+    windowSet(info.exterior, face, [Math.min(.85, w / columns * .59), Math.min(1.17, h / floors * .59)]);
+    windowSet(info.exterior, side, [Math.min(.8, d / columns * .57), Math.min(1.17, h / floors * .59)], true);
+  }
+
+  function roof(parent, color, w, d, y, height) {
+    const shape = new THREE.Shape();
+    shape.moveTo(-w / 2, 0);
+    shape.lineTo(0, height);
+    shape.lineTo(w / 2, 0);
+    shape.closePath();
+    const geometry = new THREE.ExtrudeGeometry(shape, { bevelEnabled: false, depth: d });
+    solid(parent, geometry, color, 0, y, -d / 2, 1, 1, 1);
+  }
+
+  function frontDoor(info, y, z, doorColor) {
+    const outside = info.exterior;
+    box(outside, trim, 0, y + .77, z, 1.22, 1.58, .18);
+    box(outside, doorColor, 0, y + .74, z + .11, .88, 1.44, .11);
+    box(outside, pane, 0, y + .98, z + .174, .55, .57, .03);
+    solid(outside, ball, bulbs[2], .30, y + .6, z + .19, .053, .053, .048);
+    box(info.root, 0xb2aca0, 0, .23, z + .3, 1.52, .16, .64);
+  }
+
+  function homeExterior(info) {
+    const { width: w, depth: d, color, roof: roofColor } = info.spec;
+    const outside = info.exterior;
+    box(outside, color, 0, 1.59, 0, w, 2.47, d);
+    for (const x of [-w / 2, w / 2]) box(outside, trim, x, 1.59, d / 2, .125, 2.5, .116);
+    box(outside, trim, 0, .53, 0, w + .035, .18, d + .045);
+    roof(outside, roofColor, w + .58, d + .55, 2.81, 1.94);
+    roof(outside, powder, w + .62, d + .59, 2.91, 1.97);
+    box(outside, 0xa17868, -1.63, 4.01, -.86, .48, 1.42, .48);
+    box(outside, powder, -1.63, 4.74, -.86, .55, .15, .55);
+    windowSet(outside, [[-1.9,1.62,d/2],[1.9,1.62,d/2],[0,3.37,d/2+.34]], [.98,.91]);
+    windowSet(outside, [[w/2,1.61,-1.28],[w/2,1.61,1.28]], [.97,.87], true);
+    frontDoor(info, .35, d / 2 + .04, roofColor);
+    for (let n = 0; n < 12; n++) {
+      const x = (n - 5.5) * .48;
+      solid(outside, ball, bulbs[n % bulbs.length], x, 2.68 - Math.sin(n * Math.PI / 11) * .15, d / 2 + .15, .07, .07, .07);
+    }
+    pine(info.root, -2.63, .09, d / 2 + .58, .47, true);
+    box(info.root, 0xc8d2d3, 0, .12, d / 2 + 1.1, 1.18, .06, 1.78);
+  }
+
+  function officeExterior(info) {
+    const { id, spec: { width: w, depth: d, color } } = info;
+    if (id === 'hq') {
+      apartment(info, 0, .36, 0, w, 7.2, d, color, 6, 4);
+      apartment(info, 0, 7.55, -.14, 8.5, 5.12, 7.1, 0xd6c2a2, 5, 3);
+      apartment(info, 0, 12.65, -.26, 6.27, 3.93, 5.3, 0xd9c8aa, 4, 3);
+      apartment(info, 0, 16.57, -.31, 3.15, 1.78, 2.94, 0xd8d1bc, 2, 1);
+      box(info.exterior, 0xc1a98e, 0, 18.62, -.32, 1.63, .55, 1.55);
+      box(info.exterior, 0x788a96, 0, 19.56, -.32, .15, 1.91, .15);
+      solid(info.exterior, ball, bulbs[2], 0, 20.58, -.32, .115, .115, .115);
+      for (const x of [-4.35,-2.62,2.62,4.35]) box(info.exterior, trim, x, 3.92, d / 2 + .095, .14, 6.87, .13);
+    } else {
+      apartment(info, 0, .36, 0, w, id === 'moex' ? 5.8 : 4.35, d, color, 5, 2);
+      if (id === 'moex') {
+        apartment(info, 0, 6.14, -.55, 5.7, 1.58, 5.3, 0xd8c5aa, 3, 1);
+        for (const x of [-3.9,-2.65,2.65,3.9]) box(info.exterior, trim, x, 1.95, d / 2 + .22, .22, 3.0, .23);
+      } else {
+        box(info.exterior, 0x657d78, 0, 4.89, -.28, w - .22, .27, d - .25);
+        box(info.exterior, powder, 0, 5.061, -.28, w - .1, .11, d - .12);
+      }
+    }
+    frontDoor(info, .34, d / 2 + .02, 0x536b5e);
+    for (const x of [-2.6, 2.6]) {
+      box(info.root, 0xb8a08b, x, .22, d / 2 + .81, .65, .25, .63);
+      pine(info.root, x, .21, d / 2 + .81, .43, true);
+    }
+  }
+
+  function furniture(info) {
+    const { width: w, depth: d, home, color } = info.spec;
+    const room = info.room;
+    box(room, home ? 0xd7ab7c : 0xdbbe9e, 0, .36, 0, w, .16, d);
+    for (let x = -w / 2 + .33; x < w / 2; x += .37) box(room, 0xe9cba8, x, .445, 0, .03, .012, d - .035);
+    box(room, color, 0, 1.31, -d / 2 + .08, w, 1.77, .16);
+    box(room, color, -w / 2 + .08, 1.31, -.89, .16, 1.77, d - 1.76);
+    windowSet(room, [[-1.1,1.53,-d/2+.19],[1.1,1.53,-d/2+.19]], [1.08,.86]);
+    const rug = home ? 0xa77565 : 0x9aaf9d;
+    box(room, 0xe8dccc, 0, .462, .75, w * .61, .026, d * .55);
+    box(room, rug, 0, .482, .75, w * .57, .018, d * .49);
+    const sofa = home ? 0x819d85 : 0x8d8179;
+    box(room, sofa, -w * .25, .64, -.30, .83, .39, 1.6);
+    box(room, sofa, -w * .25 - .31, .86, -.3, .19, .52, 1.66);
+    for (const offset of [-.76, .76]) box(room, 0xc6cfb4, -w * .25, .78, -.3 + offset, .87, .24, .17);
+    box(room, timber, -w * .12, .71, .25, .55, .13, .9);
+    box(room, trim, -w * .12, .794, .39, .23, .05, .24);
+    const desk = (x, z) => {
+      box(room, timber, x, .94, z, 1.55, .12, .67);
+      for (const offset of [-.64,.64]) box(room, 0x535e5c, x + offset, .69, z, .086, .49, .50);
+      box(room, 0x48626a, x, 1.24, z -.18, .74, .47, .08);
+      box(room, 0xa7c8cc, x, 1.25, z -.128, .64, .37, .034);
+      box(room, 0x5b696d, x + .06, 1.02, z + .15, .49, .04, .18);
+      box(room, 0x8c765f, x, .71, z + .67, .47, .115, .44);
+      box(room, 0x8c765f, x, .94, z + .86, .47, .4, .08);
+    };
+    desk(w * .22, -d * .28);
+    if (home) {
+      box(room, 0xcabaa3, w * .28, .68, d * .25, 1.11, .43, 1.61);
+      box(room, color, w * .28, .91, d * .26, 1.11, .13, 1.45);
+      box(room, powder, w * .28, .99, d * .42, .91, .12, .33);
+    } else if (info.id === 'hq') {
+      desk(-w * .25, -d * .26);
+      box(room, 0x7d5d48, 0, .91, .76, 1.78, .16, 1.15);
+      solid(room, ball, yellowGlass, 0, 1.12, .6, .15, .15, .15);
+    } else {
+      desk(w * .24, d * .19);
+      for (let layer = 0; layer < 5; layer++) {
+        box(room, 0x536a71, -w * .38, .64 + layer * .22, -d * .35, .62, .16, .59);
+        box(room, bulbs[layer % bulbs.length], -w * .38 + .19, .64 + layer * .22, -d * .35 + .31, .05, .039, .027);
+      }
+    }
+    pine(room, -w * .36, .45, d * .30, home ? .52 : .64, true);
+    info.work = vec(info.spec.x + w * .21, .46, info.spec.z - d * .28 + .64);
+  }
+
+  function plaza(info) {
+    const court = info.root;
+    box(court, 0xdbe5e2, 0, .12, 0, 10.7, .13, 6.9);
+    box(court, 0xc6d4d7, 0, .204, 0, 5.5, .06, 5.5);
+    pine(court, 0, .23, -.12, 1.18, true);
+    for (const x of [-2.0, 1.97]) {
+      box(court, 0xb98168, x, .32, .78, .67, .26, .47);
+      box(court, trim, x, .465, .78, .13, .036, .48);
+      lamp(court, x * 2, .18);
+    }
+  }
+
+  for (const [id, spec] of Object.entries(districts)) {
+    const root = group(scene, spec.x, 0, spec.z);
+    const info = { id, spec, root, exterior: group(root), room: group(root), work: vec(spec.x, .17, spec.z) };
+    box(root, 0xb7c9cc, .21, .115, -.23, spec.width + .95, .16, spec.depth + .92);
+    box(root, snow, 0, .204, 0, spec.width + .36, .085, spec.depth + .37);
+    if (id === 'lounge') plaza(info);
+    else {
+      if (spec.home) homeExterior(info);
+      else officeExterior(info);
+      furniture(info);
+    }
+    batchBoxes(info.exterior);
+    batchBoxes(info.room);
+    info.room.visible = false;
     const marker = document.createElement('button');
     marker.type = 'button';
     marker.className = 'marker';
-    marker.style.setProperty('--district-color', district.color);
     marker.innerHTML = '<b></b><em hidden></em>';
-    marker.querySelector('b').textContent = district.label;
+    marker.querySelector('b').textContent = spec.label;
+    marker.setAttribute('aria-label', spec.name);
+    marker.toggleAttribute('data-home', Boolean(spec.home));
     marker.addEventListener('click', () => selectDistrict(id));
     elements.markers.append(marker);
-    const hitbox = box(group, pickMaterial, 0, district.height / 2, 0, district.width, district.height, district.depth);
-    hitbox.userData.id = id;
-    hitboxes.push(hitbox);
-    const exterior = new THREE.Group();
-    group.add(exterior);
-    const walls = [];
-    function retractable(options) {
-      const material = new THREE.MeshStandardMaterial({ roughness: .6, metalness: .24, ...options });
-      material.userData.opacity = options.opacity ?? 1;
-      walls.push(material);
-      return material;
+    info.marker = marker;
+    places.set(id, info);
+  }
+
+  const wheel = new THREE.CylinderGeometry(.20, .20, .135, 10);
+  const makeCar = (parent, color) => {
+    const car = group(parent);
+    box(car, color, 0, .32, 0, .95, .39, 1.90);
+    box(car, 0x78949d, 0, .57, -.10, .78, .31, .99);
+    box(car, color, 0, .75, -.11, .77, .07, .81);
+    for (const x of [-.47,.47]) {
+      for (const z of [-.62,.62]) solid(car, wheel, 0x2e3839, x, .215, z, 1, 1, 1).rotation.z = Math.PI / 2;
+      box(car, trim, x * .7, .42, .95, .165, .09, .024);
+      box(car, 0xc45145, x * .71, .41, -.95, .165, .08, .024);
     }
-    const accent = paint(district.color, true);
-    const { width, depth } = district;
-    box(group, paint(0x142440), 0, .205, 0, width + 1.35, .29, depth + 1.35);
-    box(group, paint(0x243451), 0, .378, 0, width + 1.02, .065, depth + 1.02);
-    box(group, paint(0x101a36), 0, .445, 0, width + .05, .08, depth + .05);
+    return car;
+  };
+  for (const [x,z,color] of [[-22,6.59,0xb87569],[13.4,9.06,0x657e90],[23,-6.55,0xf4e3c0],[-18,20.64,0x698976],[9,22.04,0x9a7777]]) {
+    const parked = makeCar(scene, color);
+    parked.position.set(x,.14,z);
+    parked.rotation.y = Math.PI / 2;
+  }
+
+  function makeAgent(profile, index) {
+    const rig = group(scene);
+    const body = group(rig);
+    const coat = parseInt(profile.color.slice(1), 16);
+    box(body, coat, 0, .71, 0, .35, .44, .26);
+    box(body, 0xf1d4a3, 0, .92, .025, .38, .105, .30);
+    box(body, 0xf1d4a3, -.11, .78, .153, .105, .24, .055);
+    solid(body, ball, [0xc89371,0xe4b792,0xa87557,0xe8c3a1,0xd9aa87][index % 5], 0, 1.13, 0, .154, .179, .149);
+    solid(body, ball, coat, 0, 1.23, -.008, .17, .117, .162);
+    solid(body, ball, trim, 0, 1.34, -.01, .067, .067, .067);
+    const legs = [];
+    const arms = [];
     for (const side of [-1, 1]) {
-      box(group, accent, side * (width / 2 + .41), .414, 0, .055, .04, depth + .86);
-      box(group, accent, 0, .414, side * (depth / 2 + .41), width + .86, .04, .055);
+      const leg = group(body, side * .115, .52, 0);
+      box(leg, 0x384d52, 0, -.184, 0, .13, .35, .132);
+      box(leg, 0x35423b, 0, -.42, .038, .151, .113, .225);
+      legs.push(leg);
+      const arm = group(body, side * .230, .842, 0);
+      box(arm, coat, 0, -.176, 0, .125, .33, .137);
+      arms.push(arm);
     }
-    const info = { id, ...district, group, exterior, walls, marker, accent, retractable, fade: 1, visible: false, activity: '' };
-    buildings.set(id, info);
-    return info;
+    const car = makeCar(rig, coat);
+    car.visible = false;
+    const id = profile.home ? profile.id + '-home' : 'lounge';
+    rig.position.copy(places.get(id).work);
+    return { profile, index, rig, body, car, legs, arms, row: { ...empty, district: id }, place: id, travel: null };
+  }
+  const agents = profiles.map(makeAgent);
+
+  const signalCount = 270;
+  const flakes = new Float32Array(signalCount * 3);
+  for (let n = 0; n < signalCount; n++) {
+    flakes[n * 3] = -34 + ((n * 19.87) % 68);
+    flakes[n * 3 + 1] = 1 + ((n * 9.37) % 24);
+    flakes[n * 3 + 2] = -25 + ((n * 14.83) % 50);
+  }
+  const flakesGeometry = new THREE.BufferGeometry();
+  flakesGeometry.setAttribute('position', new THREE.BufferAttribute(flakes, 3));
+  const snowfall = new THREE.Points(flakesGeometry, new THREE.PointsMaterial({ color: 0xffffff, size: .125, transparent: true, opacity: .77, depthWrite: false }));
+  scene.add(snowfall);
+  const mast = vec(0, 20.58, -11.32);
+  const orbital = new THREE.Group();
+  scene.add(orbital);
+  const beamMaterial = new THREE.MeshBasicMaterial({ color: 0x76b5df, transparent: true, opacity: .21, depthWrite: false });
+  box(orbital, beamMaterial, mast.x, mast.y + 6, mast.z, .21, 12, .21);
+  const packet = solid(orbital, ball, bulbs[2], mast.x, mast.y + 6, mast.z, .34, .34, .34);
+  orbital.visible = false;
+  let relay = null;
+  let relayAt = 0;
+  let options = townOptions;
+
+  function setOptions(next) {
+    options = next;
+    const light = applyLight();
+    const state = {
+      day: [0xe5f3ff, 0xa7b1a4, 1.52, 0xffeed1, 2.3, .62, 0xd2e3ee, .055],
+      dusk: [0xddc9ef, 0x9e869a, 1.03, 0xffa06d, 1.78, .53, 0xb5a3be, .31],
+      night: [0xabc4ed, 0x6d7790, .85, 0xc9d8ff, .86, .32, 0x687d9b, .55],
+    }[light];
+    sky.color.setHex(state[0]);
+    sky.groundColor.setHex(state[1]);
+    sky.intensity = state[2];
+    sun.color.setHex(state[3]);
+    sun.intensity = state[4];
+    fill.intensity = state[5];
+    scene.fog.color.setHex(state[6]);
+    pane.emissiveIntensity = state[7];
+    snowfall.visible = options.snow;
   }
 
-  function shell(building, depth, width, wallHeight, base, ink) {
-    const texture = createFacade(building.color, ink);
-    const material = building.retractable({
-      color: 0xa2b2d9, map: texture, emissive: 0xc2d3ff, emissiveMap: texture, emissiveIntensity: .4,
-    });
-    const roof = building.retractable({ color: 0x233b5f });
-    const glow = building.retractable({ color: building.color, emissive: building.color, emissiveIntensity: .7 });
-    const { exterior } = building;
-    for (const side of [-1, 1]) {
-      box(exterior, material, side * width / 2, base + wallHeight / 2, 0, .13, wallHeight, depth);
-      box(exterior, material, 0, base + wallHeight / 2, side * depth / 2, width, wallHeight, .13);
-      box(exterior, glow, side * (width / 2 + .021), base + wallHeight + .08, 0, .078, .084, depth);
-      box(exterior, glow, 0, base + wallHeight + .08, side * (depth / 2 + .021), width, .084, .078);
-    }
-    box(exterior, roof, 0, base + wallHeight + .075, 0, width + .17, .24, depth + .17);
-    return { roof, glow, material };
+  function entrance(place) {
+    const { x, z, depth } = places.get(place).spec;
+    return vec(x + .62, .19, z + depth / 2 + .47);
   }
-
-  function timesSquare(building) {
-    const exterior = building.exterior;
-    const main = shell(building, 6.95, 7.9, 8.6, .48, '#2d314b');
-    const second = shell(building, 5.8, 6.48, 5.1, 9.16, '#232a44');
-    shell(building, 4.3, 4.9, 2.94, 14.35, '#33314a');
-    const stone = building.retractable({ color: 0xbcc8d9, metalness: .49, emissive: 0x53413c, emissiveIntensity: .2 });
-    const crown = building.retractable({ color: 0xffe5b0, emissive: 0xffb361, emissiveIntensity: .72 });
-    for (const side of [-1, 1]) {
-      for (const edge of [-1, 1]) {
-        box(exterior, stone, edge * 3.91, 4.63, side * 3.45, .18, 8.31, .19);
-        box(exterior, stone, edge * 3.21, 11.6, side * 2.87, .14, 4.82, .16);
-      }
-      for (const x of [-2.63, -1.32, 0, 1.32, 2.63]) {
-        box(exterior, stone, x, 4.8, side * 3.56, .084, 6.95, .08);
-      }
-      box(exterior, main.glow, 0, 8.87, side * 3.54, 7.84, .16, .12);
-      box(exterior, second.glow, 0, 14.08, side * 2.97, 6.41, .13, .1);
-    }
-    box(exterior, stone, 0, 17.72, 0, 3.14, .88, 2.69);
-    box(exterior, crown, 0, 18.04, 0, 3.18, .17, 2.73);
-    box(exterior, stone, 0, 18.59, 0, 1.92, 1.05, 1.65);
-    box(exterior, crown, 0, 19.16, 0, 1.32, .14, 1.17);
-    rod(exterior, stone, V(0, 19.14, 0), V(0, 20.6, 0), .077);
-    rod(exterior, crown, V(0, 20.55, 0), V(0, 20.83, 0), .041);
-
-    const boards = [
-      { x: -2.53, y: 2.37, w: 2.25, h: 2.13, ink: '#fd57bf', accent: '#f2a7ff', title: 'TIMES', bottom: 'SQUARE' },
-      { x: .05, y: 2.69, w: 2.53, h: 1.38, ink: '#267af7', accent: '#85faff', title: 'NEW YORK', bottom: 'CITY' },
-      { x: 2.59, y: 2.4, w: 2.08, h: 2.32, ink: '#e84f36', accent: '#ffd489', title: 'BROADWAY', bottom: '42 ST' },
-    ];
-    for (const board of boards) {
-      const texture = art(230, 140, ctx => {
-        const color = ctx.createLinearGradient(0, 0, 230, 140);
-        color.addColorStop(0, '#101633');
-        color.addColorStop(1, board.ink);
-        ctx.fillStyle = color;
-        ctx.fillRect(0, 0, 230, 140);
-        ctx.strokeStyle = board.accent;
-        ctx.lineWidth = 3;
-        ctx.strokeRect(4, 4, 222, 132);
-        ctx.fillStyle = '#ffffff';
-        ctx.font = 'bold 28px sans-serif';
-        ctx.textAlign = 'center';
-        ctx.fillText(board.title, 115, 59, 202);
-        ctx.fillStyle = board.accent;
-        ctx.font = 'bold 25px sans-serif';
-        ctx.fillText(board.bottom, 115, 103, 202);
-      }).texture;
-      const screen = building.retractable({ color: 0xffffff, map: texture, emissive: 0xffffff, emissiveMap: texture, emissiveIntensity: 1 });
-      panel(exterior, screen, board.x, board.y, 3.61, board.w, board.h);
-    }
-    const marquee = art(360, 76, ctx => {
-      ctx.fillStyle = '#122348';
-      ctx.fillRect(0, 0, 360, 76);
-      ctx.fillStyle = '#ffdf9b';
-      ctx.font = 'bold 29px sans-serif';
-      ctx.textAlign = 'center';
-      ctx.fillText('EMPIRE STATE', 180, 47);
-    }).texture;
-    const sign = building.retractable({ color: 0xffffff, map: marquee, emissive: 0xffffff, emissiveMap: marquee, emissiveIntensity: .72 });
-    panel(exterior, sign, 0, 6.62, 3.6, 5.47, 1.13);
-    for (const x of [-3.8, 3.8]) {
-      cylinder(building.group, paint(0x4e4862), x, .82, 3.84, .12, .71);
-      sphereLamp(x);
-    }
-
-    function sphereLamp(x) {
-      const bulb = new THREE.Mesh(new THREE.SphereGeometry(.15, 9, 6), building.accent);
-      bulb.position.set(x, 1.19, 3.84);
-      building.group.add(bulb);
-    }
-  }
-
-  function stockExchange(building) {
-    const first = shell(building, 8.45, 9.4, 7.15, .48, '#142648');
-    const upper = shell(building, 7, 7.8, 4.25, 7.7, '#101e45');
-    box(building.exterior, upper.roof, 0, 12.32, 0, 4.8, .62, 4.2);
-    const gold = building.retractable({ color: 0xffc579, emissive: 0xe68332, emissiveIntensity: .68 });
-    for (const sign of [-1, 1]) {
-      box(building.exterior, gold, sign * 4.67, 4, 4.21, .098, 7.2, .09);
-      box(building.exterior, gold, 0, 7.13, sign * 4.29, 9.32, .12, .09);
-    }
-    rod(building.exterior, gold, V(0, 12.4, 0), V(0, 13.54, 0), .055);
-    const chart = art(360, 144, (context) => {
-      context.fillStyle = '#122542';
-      context.fillRect(0, 0, 360, 144);
-      context.strokeStyle = '#2b4569';
-      context.lineWidth = 1;
-      for (let x = 10; x < 360; x += 28) {
-        context.beginPath();
-        context.moveTo(x, 0);
-        context.lineTo(x, 144);
-        context.stroke();
-      }
-      for (let y = 17; y < 144; y += 24) {
-        context.beginPath();
-        context.moveTo(0, y);
-        context.lineTo(360, y);
-        context.stroke();
-      }
-      context.fillStyle = '#ffdb9b';
-      context.font = 'bold 20px monospace';
-      context.fillText('MOEX', 14, 24);
-      const data = [109, 102, 111, 89, 81, 91, 78, 62, 76, 66, 70, 40, 49, 41, 31, 27];
-      context.beginPath();
-      for (const [index, y] of data.entries()) {
-        const x = 14 + index * 22;
-        if (index) context.lineTo(x, y);
-        else context.moveTo(x, y);
-      }
-      context.strokeStyle = '#ffca79';
-      context.lineWidth = 4;
-      context.stroke();
-    }).texture;
-    const chartMaterial = building.retractable({ color: 0xffffff, map: chart, emissive: 0xffffff, emissiveMap: chart, emissiveIntensity: .43 });
-    panel(building.exterior, chartMaterial, 0, 4.97, 4.311, 7.72, 2.84);
-    panel(building.exterior, chartMaterial, 4.783, 4.97, 0, 6.42, 2.84, Math.PI / 2);
-    const quotes = art(600, 56, () => {});
-    const tickerMaterial = building.retractable({ color: 0xffffff, map: quotes.texture, emissive: 0xffd596, emissiveMap: quotes.texture, emissiveIntensity: .75 });
-    panel(building.exterior, tickerMaterial, 0, 2.8, 4.31, 8.62, .72);
-    let lastTick = -1;
-    updateTicker = (time) => {
-      if (time - lastTick < .08) return;
-      lastTick = time;
-      const { raster, context, texture } = quotes;
-      context.fillStyle = '#0e1d36';
-      context.fillRect(0, 0, raster.width, raster.height);
-      context.font = 'bold 26px monospace';
-      context.fillStyle = '#ffd093';
-      const symbols = 'MOEX  /  IMOEX  •  SBER  •  GAZP  •  LKOH  •  RGBI  /  ';
-      const width = context.measureText(symbols).width;
-      const offset = (time * 69) % width;
-      context.fillText(symbols, -offset, 36);
-      context.fillText(symbols, width - offset, 36);
-      texture.needsUpdate = true;
-    };
-    box(building.exterior, first.glow, 0, 7.83, 3.41, 7.58, .12, .12);
-  }
-
-  function grantRadar(building) {
-    const skin = shell(building, 8.3, 8.9, 4.35, .48, '#102f39');
-    const lit = building.retractable({ color: 0x6bffb6, emissive: 0x40b68c, emissiveIntensity: .63 });
-    const roof = building.exterior;
-    box(roof, skin.roof, 0, 4.91, 0, 6.8, .4, 6.12);
-    for (let i = -1; i <= 1; i++) {
-      box(roof, lit, i * 2.59, 2.77, 4.2, .065, 3.2, .11);
-    }
-    const radarBase = new THREE.Group();
-    radarBase.position.set(0, 5.17, 0);
-    roof.add(radarBase);
-    cylinder(radarBase, skin.roof, 0, .255, 0, .72, .46);
-    cylinder(radarBase, lit, 0, .54, 0, .53, .12);
-    const dishBase = new THREE.Group();
-    dishBase.position.y = 1.02;
-    dishBase.rotation.z = .55;
-    radarBase.add(dishBase);
-    const curve = Array.from({ length: 10 }, (_, index) => {
-      const distance = index / 9 * 1.8;
-      return new THREE.Vector2(distance, .25 * distance ** 2);
-    });
-    const ceramic = building.retractable({ color: 0x4aa997, side: THREE.DoubleSide, metalness: .63, emissive: 0x022717 });
-    const dish = new THREE.Mesh(new THREE.LatheGeometry(curve, 26), ceramic);
-    dishBase.add(dish);
-    ring(dishBase, lit, 0, .83, 0, 1.8, .033);
-    for (const sign of [-1, 1]) {
-      rod(dishBase, skin.roof, V(sign * .88, .21, 0), V(0, 1.26, 0), .046);
-      rod(dishBase, skin.roof, V(0, .21, sign * .88), V(0, 1.26, 0), .046);
-    }
-    cylinder(dishBase, lit, 0, 1.39, 0, .12, .27);
-    updateRadar = time => { radarBase.rotation.y = time * .46; };
-  }
-
-  function developerLab(building) {
-    const skin = shell(building, 8.35, 9.4, 3.5, .47, '#112b44');
-    const upper = shell(building, 6.65, 7.0, 1.44, 3.99, '#0a3b53');
-    box(building.exterior, skin.roof, -.9, 5.51, 0, 4.5, .54, 3.9);
-    for (const offset of [-3.71, -2.8, 2.8, 3.71]) {
-      box(building.exterior, upper.glow, offset, .99, 4.26, .107, .91, .09);
-      box(building.exterior, upper.glow, offset * .85, 5.622, .63, .075, .025, 3.7);
-    }
-    const hologram = art(288, 68, context => {
-      context.fillStyle = '#112d49';
-      context.fillRect(0, 0, 288, 68);
-      context.strokeStyle = '#4ce4f3';
-      context.strokeRect(3, 4, 281, 59);
-      context.fillStyle = '#8cfcff';
-      context.font = 'bold 30px monospace';
-      context.fillText('DEV / LAB', 59, 44);
-    }).texture;
-    const display = building.retractable({ map: hologram, emissiveMap: hologram, emissive: 0xa4d9ff, emissiveIntensity: .65 });
-    panel(building.exterior, display, 0, 2.94, 4.29, 4.8, .91);
-    rod(building.exterior, skin.glow, V(-1.2, 5.51, -.38), V(-1.2, 6.2, -.38), .045);
-  }
-
-  function lounge(building) {
-    const deck = building.group;
-    const water = new THREE.ShaderMaterial({
-      uniforms: { time: { value: 0 } },
-      vertexShader: [
-        'varying vec2 uvSpace;',
-        'void main() { uvSpace = uv; gl_Position = projectionMatrix * modelViewMatrix * vec4(position,1.); }',
-      ].join('\n'),
-      fragmentShader: [
-        'uniform float time; varying vec2 uvSpace;',
-        'void main() {',
-        '  float wave = sin(uvSpace.x*29.+uvSpace.y*47.+time*1.5)*sin(uvSpace.y*77.-time*1.8+uvSpace.x*10.);',
-        '  float glow = smoothstep(.38,.93,wave);',
-        '  vec3 color = mix(vec3(.027,.087,.235), vec3(.26,.32,.70), .26+glow*.43);',
-        '  gl_FragColor = vec4(color,1.);',
-        '}',
-      ].join('\n'),
-    });
-    const pool = new THREE.Mesh(new THREE.PlaneGeometry(5.1, 7.7), water);
-    pool.rotation.x = -Math.PI / 2;
-    pool.position.set(2.54, .518, 0);
-    deck.add(pool);
-    updateWater = time => { water.uniforms.time.value = time; };
-    for (const side of [-1, 1]) {
-      box(deck, building.accent, 2.54, .52, side * 3.89, 5.14, .037, .05);
-      box(deck, building.accent, 2.54 + side * 2.58, .52, 0, .05, .037, 7.78);
-    }
-    const roof = building.retractable({ color: 0x664b88, metalness: .53 });
-    const glow = building.retractable({ color: 0xf6a7fc, emissive: 0xba44a2, emissiveIntensity: .81 });
-    for (const x of [-4.86, -.6]) {
-      for (const z of [-3.1, .54]) cylinder(building.exterior, roof, x, 1.49, z, .08, 2);
-    }
-    const canopy = box(building.exterior, roof, -2.73, 2.52, -1.28, 4.48, .13, 3.85);
-    canopy.rotation.z = -.087;
-    box(building.exterior, glow, -2.73, 2.61, .65, 4.52, .07, .075);
-    for (const z of [-2.3, 1.94, 3.1]) {
-      box(deck, paint(0x755492), -2.77, .7, z, 2.28, .24, .46);
-      box(deck, paint(0x9b70ac), -2.77, .86, z - .23, 2.28, .29, .104);
-    }
-
-    const leaf = paint(0x4990a0);
-    for (const [x, z] of [[-.74, -3.74], [-4.65, 3.25], [4.6, 3.4]]) {
-      cylinder(deck, paint(0x34354f), x, .72, z, .36, .36);
-      cylinder(deck, paint(0x98627e), x, 1.59, z, .075, 1.6);
-      for (let index = 0; index < 5; index++) {
-        const angle = index / 5 * Math.PI * 2;
-        const frond = box(deck, leaf, x + Math.sin(angle) * .33, 2.43 - (index % 2) * .07, z + Math.cos(angle) * .33, .13, .052, .83);
-        frond.rotation.y = angle;
-        frond.rotation.x = -.18;
-      }
-    }
-    const pad = ring(deck, building.accent, .29, .55, -3.19, .36, .025);
-    pad.scale.set(1, 1.4, 1);
-  }
-
-  const codeScreen = art(220, 116, context => {
-    context.fillStyle = '#0e3b5a';
-    context.fillRect(0, 0, 220, 116);
-    context.strokeStyle = '#72e9ff';
-    context.lineWidth = 4;
-    context.strokeRect(4, 4, 212, 108);
-    for (let index = 0; index < 7; index++) {
-      context.fillStyle = index % 3 === 0 ? '#a3acd5' : '#46c2dc';
-      context.fillRect(15 + index % 2 * 13, 16 + index * 12, 45 + (index * 13) % 133, 3);
-    }
-  }).texture;
-  const terminalScreen = new THREE.MeshBasicMaterial({ map: codeScreen, color: 0xe3fcff, side: THREE.DoubleSide });
-  const shelfCase = paint(0x5370a3);
-  const furniture = paint(0x7188b5);
-  const rackCase = paint(0x27384c);
-  function interior(building) {
-    const floor = new THREE.Group();
-    floor.visible = false;
-    building.group.add(floor);
-    building.interior = floor;
-    const accent = building.accent;
-    const isLounge = building.id === 'lounge';
-    const origin = isLounge ? -2.4 : 0;
-    const workspaceWidth = isLounge ? 4.8 : 7.9;
-    box(floor, paint(0x2b3c60), origin, .49, .03, workspaceWidth, .04, 7.13);
-    const xOffice = origin - (isLounge ? .5 : 1.12);
-    const xShelf = origin - (isLounge ? 1.77 : 3.14);
-    const xMachines = origin + (isLounge ? 1.32 : 2.94);
-    for (const z of [-1.76, -.97, 1.9]) {
-      box(floor, shelfCase, xShelf, 1.1, z, .26, 1.22, .72);
-      for (const y of [.67, .98, 1.29]) {
-        box(floor, furniture, xShelf + .125, y, z, .46, .078, .70);
-        box(floor, accent, xShelf + .29, y + .16, z - .12, .22, .26, .16);
-        box(floor, paint(0x647ec1), xShelf + .27, y + .17, z + .105, .22, .26, .185);
-      }
-    }
-
-    const desk = (x, z) => {
-      box(floor, furniture, x, .91, z, 1.84, .115, .76);
-      for (const off of [-.72, .72]) box(floor, rackCase, x + off, .70, z, .102, .43, .6);
-      const screen = panel(floor, terminalScreen, x, 1.34, z - .213, 1.28, .54);
-      screen.rotation.x = -.105;
-      box(floor, rackCase, x, .89, z + .67, .49, .089, .49);
-      box(floor, paint(0x7cbfdd), x, 1.02, z + .85, .48, .34, .08);
-    };
-    desk(xOffice, .78);
-    if (!isLounge) desk(xOffice + 1.85, -2.41);
-
-    const zReporter = -2.21;
-    for (const z of [-1.22, .08]) {
-      box(floor, rackCase, xMachines, 1.32, z, .85, 1.64, .74);
-      for (let index = 0; index < 6; index++) {
-        box(floor, furniture, xMachines, .66 + index * .225, z + .39, .62, .082, .027);
-        box(floor, accent, xMachines - .214, .66 + index * .225, z + .41, .08, .058, .032);
-      }
-    }
-    for (const x of [xMachines - .46, xMachines - 1.26]) {
-      box(floor, paint(0x313b5b), x, .68, 1.77, .57, .34, .57);
-      box(floor, accent, x, .866, 1.77, .47, .08, .47);
-    }
-    cylinder(floor, rackCase, xMachines, .87, zReporter, .32, .69);
-    ring(floor, accent, xMachines, 1.28, zReporter, .27);
-    cylinder(floor, accent, xMachines, 1.25, zReporter, .09, .24);
-    building.spots = {
-      shelf: [xShelf + .69, -1.05],
-      desk: [xOffice, 1.54],
-      rack: [xMachines - .57, .65],
-      test: [xMachines - .85, 1.74],
-      transmitter: [xMachines - .44, zReporter],
-    };
-  }
-
-  const builders = { hq: timesSquare, moex: stockExchange, grants: grantRadar, dev: developerLab, lounge };
-  for (const [id, district] of Object.entries(districts)) {
-    const building = makeBuilding(id, district);
-    builders[id](building);
-    interior(building);
-  }
-
-  const sparks = art(48, 48, (context) => {
-    context.textAlign = 'center';
-    context.font = 'bold 27px monospace';
-    context.fillStyle = '#91faff';
-    context.shadowColor = '#72e6ff';
-    context.shadowBlur = 8;
-    context.fillText('{}', 24, 33);
-  }).texture;
-  const agents = [];
-  function createDrone(profile, index) {
-    const group = new THREE.Group();
-    const { color } = profile;
-    const skin = paint(0x5b6b8c);
-    const bright = paint(color, true);
-    const body = new THREE.Mesh(new THREE.IcosahedronGeometry(.365, 1), skin);
-    body.scale.y = .62;
-    group.add(body);
-    const visor = box(group, bright, 0, .075, .29, .45, .12, .08);
-    visor.rotation.x = -.13;
-    for (const side of [-1, 1]) {
-      cylinder(group, skin, side * .43, -.01, 0, .14, .105);
-      ring(group, bright, side * .43, -.025, 0, .15, .024);
-      cylinder(group, bright, side * .43, -.13, 0, .082, .064);
-    }
-    const antenna = rod(group, skin, V(0, .13, -.21), V(0, .42, -.35), .024);
-    const bulb = new THREE.Mesh(new THREE.SphereGeometry(.065, 8, 5), bright);
-    bulb.position.copy(antenna.position).add(V(0, .14, -.063));
-    group.add(bulb);
-    const folder = new THREE.Group();
-    box(folder, paint(0xffc15b, true), 0, 0, 0, .34, .32, .11);
-    box(folder, paint(0xff9e63, true), -.085, .177, 0, .15, .055, .10);
-    box(folder, paint(0x5e3e68), 0, -.013, .06, .23, .048, .028);
-    folder.position.set(.087, -.155, .39);
-    group.add(folder);
-
-    const laser = new THREE.Mesh(new THREE.ConeGeometry(.38, 1.32, 15, 1, true), new THREE.MeshBasicMaterial({
-      color: 0x73ffd1, transparent: true, opacity: .19, side: THREE.DoubleSide, depthWrite: false, blending: THREE.AdditiveBlending,
-    }));
-    laser.position.set(0, -.4, .65);
-    laser.rotation.x = -.52;
-    group.add(laser);
-
-    const beamMaterial = new THREE.MeshBasicMaterial({
-      color: 0xe470ff, transparent: true, opacity: .2, side: THREE.DoubleSide, depthWrite: false, blending: THREE.AdditiveBlending,
-    });
-    const beam = new THREE.Mesh(new THREE.CylinderGeometry(.06, .16, 7.7, 12, 1, true), beamMaterial);
-    scene.add(beam);
-    const bits = Array.from({ length: 9 }, () => {
-      const bit = new THREE.Sprite(new THREE.SpriteMaterial({
-        map: sparks, color: 0xc8f5ff, transparent: true, depthWrite: false, blending: THREE.AdditiveBlending,
-      }));
-      scene.add(bit);
-      return bit;
-    });
-    const packets = new THREE.Points(
-      new THREE.BufferGeometry().setAttribute('position', new THREE.Float32BufferAttribute(new Float32Array(27), 3)),
-      new THREE.PointsMaterial({ color, size: .21, transparent: true, opacity: .85, blending: THREE.AdditiveBlending, depthWrite: false }),
-    );
-    packets.frustumCulled = false;
-    scene.add(packets);
-    const route = path(scene, [V(0, 0, 0), V(0, 0, 0)], color, .30);
-    route.frustumCulled = false;
-    const home = buildings.get('hq');
-    group.position.set(home.x + (index - 2) * .64, 4, home.z + 1.5);
-    scene.add(group);
-    return {
-      profile, index, group, folder, laser, beam, bits, packets, route,
-      row: { ...empty, district: 'hq' }, launch: group.position.clone(), started: performance.now() / 1000,
-      lastPosition: group.position.clone(), workspacePosition: V(),
-    };
-  }
-
-  function positionInside(agent, building, time) {
-    const point = agent.workspacePosition;
-    const { action } = agent.row;
-    const offset = (agent.index % 3 - 1) * .34;
-    const clock = reducedMotion.matches ? 0 : time;
-    const { spots } = building;
-    let x = 0;
-    let z = 0;
-    switch (action) {
-      case 'folders': {
-        const mix = .5 - .5 * Math.cos(clock * .99 + agent.index);
-        x = THREE.MathUtils.lerp(spots.shelf[0], spots.rack[0], mix);
-        z = THREE.MathUtils.lerp(spots.shelf[1], spots.rack[1], mix) + Math.sin(Math.PI * mix) * 1.22;
-        break;
-      }
-      case 'coding':
-        [x, z] = spots.desk;
-        break;
-      case 'testing':
-        x = spots.test[0] + Math.cos(clock * 1.37 + agent.index) * .64;
-        z = spots.test[1] + Math.sin(clock * 1.37 + agent.index) * .68;
-        break;
-      case 'reporting':
-        x = spots.transmitter[0] - Math.max(0, 1 - (time - agent.started) / 3) * .63;
-        z = spots.transmitter[1] + Math.max(0, 1 - (time - agent.started) / 3) * 1.51;
-        break;
-      default:
-        x = -2.8 + Math.sin(clock * .42 + agent.index) * .46;
-        z = (agent.index - 2) * 1.15 + Math.cos(clock * .43 + agent.index) * .42;
-    }
-    const bounce = Math.sin(clock * 5.2 + agent.index) * (action === 'idle' ? .08 : .11);
-    return point.set(building.x + x + offset, 1.1 + bounce, building.z + z);
-  }
-
-  function flightPosition(agent, destination, elapsed, target) {
-    const hq = buildings.get('hq');
-    if (elapsed < .92) {
-      const progress = elapsed / .92;
-      target.copy(agent.launch).lerp(V(hq.x, hq.height + .5 + agent.index * .28, hq.z + 1.5), progress);
-      target.y += Math.sin(progress * Math.PI) * 1.8;
-    } else {
-      const progress = Math.min((elapsed - .92) / 1.62, 1);
-      const end = positionInside(agent, destination, agent.started + 2.54);
-      target.set(hq.x, hq.height + .5 + agent.index * .28, hq.z + 1.5).lerp(end, progress);
-      target.y += Math.sin(progress * Math.PI) * 2.7;
-    }
-  }
-
-  function updatePackets(agent, destination, time, on) {
-    const { packets, route } = agent;
-    const showing = on && !reducedMotion.matches && destination.id !== 'hq' && agent.row.action !== 'idle';
-    packets.visible = route.visible = showing;
-    if (!showing) return;
-    const hub = buildings.get('hq');
-    const endY = destination.height + .65;
-    const positions = packets.geometry.attributes.position;
-    for (let index = 0; index < positions.count; index++) {
-      const t = (time * .44 + index * .13 + agent.index * .19) % 1;
-      positions.setXYZ(index,
-        THREE.MathUtils.lerp(hub.x, destination.x, t),
-        THREE.MathUtils.lerp(hub.height + .6, endY, t) + Math.sin(t * Math.PI) * 1.9 + .17 * agent.index,
-        THREE.MathUtils.lerp(hub.z, destination.z, t),
-      );
-    }
-    positions.needsUpdate = true;
-    const wire = route.geometry.attributes.position;
-    wire.setXYZ(0, hub.x, hub.height + .6 + .11 * agent.index, hub.z);
-    wire.setXYZ(1, destination.x, endY + .11 * agent.index, destination.z);
-    wire.needsUpdate = true;
-  }
-
-  function effects(agent, building, time, inside) {
-    const { group, row, folder, laser, beam, bits } = agent;
-    folder.visible = inside && row.action === 'folders';
-    laser.visible = inside && row.action === 'testing';
-    beam.visible = row.action === 'reporting' && (inside || !focusId) && group.visible;
-    beam.position.set(building.x + building.spots.transmitter[0], 5.16, building.z + building.spots.transmitter[1]);
-    beam.material.opacity = .24 + .14 * Math.sin(time * 4);
-    beam.scale.setScalar(1 + .12 * Math.sin(time * 5));
-    laser.material.opacity = .11 + .2 * Math.max(0, Math.sin(time * 5));
-    for (const [index, bit] of bits.entries()) {
-      bit.visible = inside && row.action === 'coding';
-      if (!bit.visible) continue;
-      const t = (time * .67 + index / bits.length) % 1;
-      bit.position.set(group.position.x + .72 * Math.cos(index * 2 + t * 3), group.position.y + .25 + t * 2.08, group.position.z - .92 + t * .68 + Math.sin(index * 3) * .27);
-      bit.material.opacity = (1 - t) * .87;
-      bit.scale.setScalar(.23 + .17 * (1 - t));
-    }
-  }
-
-  for (const [index, profile] of profiles.entries()) agents.push(createDrone(profile, index));
-
-  const empire = buildings.get('hq');
-  const rooftop = V(empire.x, empire.height + .38, empire.z);
-  const orbit = V(empire.x + 3.15, empire.height + 10.6, empire.z - 1.95);
-  const satellite = new THREE.Group();
-  satellite.position.copy(orbit);
-  satellite.scale.setScalar(1.38);
-  scene.add(satellite);
-  box(satellite, paint(0x8ca8d8), 0, 0, 0, 1.08, .45, .61);
-  for (const side of [-1, 1]) {
-    box(satellite, paint(0x5ca9ff, true), side * 1.23, 0, 0, 1.47, .06, .52);
-    for (const line of [-.25, 0, .25]) box(satellite, paint(0x214271, true), side * 1.23 + line, .042, 0, .04, .025, .54);
-  }
-  ring(satellite, paint(0x68ddfc, true), 0, .34, 0, .5, .035);
-  const beamMaterial = new THREE.MeshBasicMaterial({ color: 0x72dfff, depthWrite: false, transparent: true, opacity: .32 });
-  const orbitalBeam = rod(scene, beamMaterial, rooftop, orbit, .165);
-  const pulse = new THREE.Mesh(new THREE.IcosahedronGeometry(.46, 1), paint(0x83e9ff, true));
-  const outputPulse = new THREE.Mesh(new THREE.IcosahedronGeometry(.38, 1), paint(0xe6a5ff, true));
-  scene.add(pulse, outputPulse);
-  let activeRelay;
-  let relayKey;
-  let relayStarted = 0;
-  const reporter = agents.find(agent => agent.profile.id === 'reporter');
-  const returnStart = V();
-
-  function armRelay(next, clock) {
-    const key = next ? next.stage + String(next.updatedAt ?? '') : '';
-    if (key === relayKey) return;
-    const alreadyReturning = activeRelay?.stage === 'returning' && next?.stage === 'sent';
-    if (!alreadyReturning) {
-      const age = next?.stage === 'sent' ? Math.max(0, (Date.now() - Date.parse(next.updatedAt)) / 1000) : 0;
-      relayStarted = clock - (Number.isFinite(age) ? age : 0);
-      if (next?.stage === 'returning' || next?.stage === 'sent') returnStart.copy(reporter.group.position);
-    }
-    activeRelay = next;
-    relayKey = key;
-  }
-
-  function updateOrbital(time) {
-    const visible = !focusId;
-    const elapsed = Math.max(0, time - relayStarted);
-    const receiving = activeRelay?.stage === 'receiving';
-    const returning = (activeRelay?.stage === 'returning' || activeRelay?.stage === 'sent') && elapsed < 6.2;
-    const outgoing = returning && (elapsed >= 1.7 || reducedMotion.matches);
-    satellite.visible = visible;
-    if (!reducedMotion.matches) satellite.rotation.y = Math.sin(time * .82) * .44;
-    orbitalBeam.visible = visible && (receiving || outgoing);
-    pulse.visible = visible && receiving;
-    outputPulse.visible = visible && outgoing;
-    if (orbitalBeam.visible) {
-      beamMaterial.color.set(outgoing ? 0xe39aff : 0x72dfff);
-      beamMaterial.opacity = reducedMotion.matches ? .44 : .30 + .18 * Math.sin(time * 8) ** 2;
-    }
-    if (pulse.visible) pulse.position.copy(orbit).lerp(rooftop, reducedMotion.matches ? .52 : (elapsed * .65) % 1);
-    if (outputPulse.visible) outputPulse.position.copy(rooftop).lerp(orbit, reducedMotion.matches ? .52 : ((elapsed - 1.7) * .62) % 1);
-    return returning && visible ? elapsed : null;
-  }
-
-  const ray = new THREE.Raycaster();
-  const coordinates = new THREE.Vector2();
-  const activePointers = new Set();
-  let gesture;
-  elements.canvas.addEventListener('pointerdown', event => {
-    activePointers.add(event.pointerId);
-    gesture = activePointers.size === 1 ? { id: event.pointerId, x: event.clientX, y: event.clientY } : undefined;
-  });
-  elements.canvas.addEventListener('pointermove', event => {
-    if (gesture?.id === event.pointerId && Math.hypot(event.clientX - gesture.x, event.clientY - gesture.y) > 7) gesture = undefined;
-  });
-  elements.canvas.addEventListener('pointercancel', event => {
-    activePointers.delete(event.pointerId);
-    gesture = undefined;
-  });
-  elements.canvas.addEventListener('pointerup', event => {
-    activePointers.delete(event.pointerId);
-    if (activePointers.size || gesture?.id !== event.pointerId) return;
-    gesture = undefined;
-    const rect = elements.canvas.getBoundingClientRect();
-    coordinates.set((event.clientX - rect.left) / rect.width * 2 - 1, -(event.clientY - rect.top) / rect.height * 2 + 1);
-    ray.setFromCamera(coordinates, camera);
-    if (focusId) {
-      const onFloor = agents.filter(agent => agent.group.visible && agent.row.district === focusId && !agent.profile.job);
-      const hit = ray.intersectObjects(onFloor.map(agent => agent.group), true)[0];
-      if (hit) {
-        let object = hit.object;
-        while (object.parent && !onFloor.some(agent => agent.group === object)) object = object.parent;
-        const agent = onFloor.find(candidate => candidate.group === object);
-        if (agent) selectAgent(agent.profile.id);
-      }
+  function commute(agent, destination, time) {
+    const hasTrip = agent.profile.home;
+    const source = agent.place;
+    const finish = places.get(destination).work.clone();
+    if (!hasTrip || reducedMotion.matches) {
+      agent.rig.position.copy(finish);
+      agent.travel = null;
+      agent.place = destination;
       return;
     }
-    const picked = ray.intersectObjects(hitboxes, false)[0];
-    if (picked) selectDistrict(picked.object.userData.id);
-  });
 
-  let focusId;
-  let follower;
-  let cameraMove;
-  let view;
-  const followStep = V();
-  const facing = V(.64, .86, .75).normalize();
-  const selectionRing = ring(scene, new THREE.MeshBasicMaterial({ color: 0xd2fef0, depthWrite: false, depthTest: false }), 0, -.1, 0, .77, .038);
-  selectionRing.renderOrder = 100;
-  selectionRing.visible = false;
-
-  function measureView() {
-    const bounds = elements.canvas.getBoundingClientRect();
-    if (!bounds.width || !bounds.height) return;
-    const aspect = bounds.width / bounds.height;
-    const horizontal = Math.min(95, Math.max(56, aspect * 49));
-    const upper = (focusId ? elements.panel : document.querySelector('.topbar')).getBoundingClientRect().bottom;
-    const lower = document.querySelector('.bottom').getBoundingClientRect().top;
-    const room = Math.max(bounds.height * .2, lower - upper - 24);
-    const center = THREE.MathUtils.clamp((lower + upper) / 2 - bounds.top, bounds.height * .25, bounds.height * .68);
-    view = { horizontal, vertical: horizontal / aspect, center, room, height: bounds.height };
+    const from = agent.rig.position.clone();
+    if (agent.travel && destination === source) {
+      const route = agent.travel;
+      let elapsed = time - route.started;
+      const visited = [];
+      for (const step of route.steps) {
+        visited.push(step);
+        if (elapsed < step.duration) break;
+        elapsed -= step.duration;
+      }
+      let previous = from;
+      const steps = visited.reverse().map(step => {
+        const to = step.from;
+        const duration = Math.max(.15, previous.distanceTo(to) / (step.drive ? 8.9 : 4.9));
+        const reverse = { from: previous, to, drive: step.drive, duration };
+        previous = to;
+        return reverse;
+      });
+      agent.travel = { steps, started: time, destination };
+      return;
+    }
+    const origin = entrance(source);
+    const target = entrance(destination);
+    const command = entrance('hq');
+    const startFromHome = places.get(source).spec.home;
+    const goViaHQ = startFromHome && destination !== 'hq' && !places.get(destination).spec.home;
+    const vehicle = options.transport === 'car' || (options.transport === 'mixed' && agent.index % 2 === 0);
+    const approach = vehicle ? .62 : 1.28;
+    const pickup = origin.clone();
+    pickup.x += startFromHome ? 2.6 : .9;
+    const road = vec(pickup.x, .18, 8.8);
+    const crossroads = vec(approach, .18, 8.8);
+    const commandGate = vec(approach, .18, command.z + 1.28);
+    const steps = [];
+    function add(position, drive = false, wait = 0) {
+      const next = position.clone();
+      const previous = steps.at(-1)?.to ?? from;
+      if (previous.distanceTo(next) < .025 && !wait) return;
+      const duration = wait || Math.max(.19, previous.distanceTo(next) / (drive ? 8.9 : 4.9));
+      steps.push({ from: previous, to: next, drive, duration });
+    }
+    if (!agent.travel) add(origin);
+    if (startFromHome) {
+      add(pickup);
+      add(road, vehicle);
+      add(crossroads, vehicle);
+      if (destination === 'hq' || goViaHQ) {
+        add(commandGate, vehicle);
+        add(command);
+        if (goViaHQ) {
+          add(command, false, .65);
+          add(commandGate);
+        }
+      }
+    } else if (places.get(destination).spec.home) {
+      add(vec(approach, .18, origin.z), vehicle);
+      add(crossroads, vehicle);
+      add(vec(target.x + 2.5, .18, crossroads.z), vehicle);
+      add(vec(target.x + 2.5, .18, target.z), vehicle);
+    } else {
+      add(vec(approach, .18, origin.z), vehicle);
+    }
+    if (destination !== 'hq' && !places.get(destination).spec.home) {
+      add(vec(approach, .18, target.z), vehicle);
+      add(vec(target.x, .18, target.z), vehicle);
+    }
+    add(target);
+    add(finish);
+    agent.travel = { steps, started: time, destination };
   }
 
-  function updateProjection() {
-    if (!view) return;
-    const { horizontal, vertical, center, height } = view;
-    const lift = (center / height - .5) * vertical / camera.zoom;
-    if (camera.right === horizontal / 2 && camera.top === vertical / 2 + lift) return;
-    camera.left = -horizontal / 2;
-    camera.right = horizontal / 2;
-    camera.bottom = -vertical / 2 + lift;
-    camera.top = vertical / 2 + lift;
-    camera.updateProjectionMatrix();
-  }
+  const projected = vec();
+  const displacement = vec();
+  let focus = null;
+  let follower = null;
+  let cameraMove = null;
+  let width = 1;
+  let height = 1;
+  const viewport = new ResizeObserver(layout);
+  viewport.observe(elements.world);
 
-  function framing(id) {
-    if (!id) return { position: widePosition, target: wideCenter, zoom: 1 };
-    const building = buildings.get(id);
-    const target = follower ? follower.group.position.clone() : V(building.x, 1.05, building.z);
-    const position = target.clone().addScaledVector(facing, 45);
-    const heightVisible = view ? view.vertical * view.room / view.height : 32;
-    const zoom = THREE.MathUtils.clamp(Math.min(
-      (view?.horizontal ?? 58) / (follower ? 6.4 : 13.6),
-      heightVisible / (follower ? 4.9 : 9.35),
-    ), 1.65, 11);
-    return { position, target, zoom };
+  function layout() {
+    const world = elements.world.getBoundingClientRect();
+    width = Math.max(1, world.width);
+    height = Math.max(1, world.height);
+    const ratio = width / height;
+    const halfW = Math.max(width < 660 ? 33 : 41, 25 * ratio);
+    const halfH = halfW / ratio;
+    camera.left = -halfW;
+    camera.right = halfW;
+    camera.top = halfH;
+    camera.bottom = -halfH;
+    const chrome = board.hidden || elements.app.hasAttribute('data-folded') ? 0 : board.offsetHeight;
+    const offsetY = Math.round(chrome * .24);
+    camera.setViewOffset(width, height, 0, offsetY, width, height);
+    renderer.setSize(width, height, false);
   }
 
   function select(id, agentId) {
-    focusId = id;
+    focus = id;
     follower = agents.find(agent => agent.profile.id === agentId);
-    for (const building of buildings.values()) building.group.visible = !id || building.id === id;
-    measureView();
-    const goal = framing(id);
-    cameraMove = {
-      ...goal, fromPosition: camera.position.clone(), fromTarget: controls.target.clone(), fromZoom: camera.zoom,
-      started: performance.now() / 1000,
-    };
+    const info = places.get(focus);
+    const target = follower ? follower.rig.position.clone().add(vec(0,.62,0)) :
+      info ? vec(info.spec.x, .85, info.spec.z) : center.clone();
+    const zoom = follower ? 5.2 : info ? (info.spec.home ? 5.2 : 3.73) : 1;
+    const position = target.clone().add(info || follower ? vec(36, 45, 57) : angle);
+    cameraMove = reducedMotion.matches ? null : { position, target, zoom };
+    if (!cameraMove) {
+      camera.position.copy(position);
+      controls.target.copy(target);
+      camera.zoom = zoom;
+      camera.updateProjectionMatrix();
+    }
+    layout();
   }
-
   controls.addEventListener('start', () => { cameraMove = null; });
 
-  function resize() {
-    const width = elements.canvas.clientWidth;
-    const height = elements.canvas.clientHeight;
-    if (!width || !height) return;
-    renderer.setSize(width, height, false);
-    measureView();
-    updateProjection();
-    if (focusId) select(focusId, follower?.profile.id);
-  }
-  new ResizeObserver(resize).observe(elements.world);
-  const overlay = new ResizeObserver(measureView);
-  overlay.observe(elements.panel);
-  overlay.observe(document.querySelector('.bottom'));
-  resize();
-
-  function animateCamera(time, delta) {
-    if (!cameraMove) {
-      if (follower) {
-        followStep.copy(follower.group.position).sub(controls.target)
-          .multiplyScalar(reducedMotion.matches ? 1 : Math.min(delta * 8, 1));
-        controls.target.add(followStep);
-        camera.position.add(followStep);
-      }
-      return;
-    }
-    const progress = reducedMotion.matches ? 1 : Math.min((time - cameraMove.started) / .72, 1);
-    const eased = 1 - Math.pow(1 - progress, 3);
-    camera.position.copy(cameraMove.fromPosition).lerp(cameraMove.position, eased);
-    controls.target.copy(cameraMove.fromTarget).lerp(cameraMove.target, eased);
-    camera.zoom = THREE.MathUtils.lerp(cameraMove.fromZoom, cameraMove.zoom, eased);
-    camera.updateProjectionMatrix();
-    if (progress >= 1) cameraMove = null;
-  }
-
-  function setWallFade(building, delta) {
-    const isFocused = focusId === building.id;
-    building.interior.visible = isFocused;
-    const next = isFocused ? 0 : 1;
-    building.exterior.visible = !isFocused || building.fade > .018;
-    if (Math.abs(building.fade - next) < .003) return;
-    building.fade = reducedMotion.matches ? next : THREE.MathUtils.lerp(building.fade, next, Math.min(delta * 7.5, 1));
-    if (Math.abs(building.fade - next) < .006) building.fade = next;
-    const transparent = building.fade < .999;
-    for (const material of building.walls) {
-      if (material.transparent !== transparent) {
-        material.transparent = transparent;
-        material.depthWrite = !transparent;
-        material.needsUpdate = true;
-      }
-      material.opacity = material.userData.opacity * building.fade;
-    }
-  }
-
-  const screenPoint = V();
-  function placeMarkers() {
-    const width = elements.canvas.clientWidth;
-    const height = elements.canvas.clientHeight;
-    for (const [id, building] of buildings) {
-      const { marker, activity } = building;
-      screenPoint.set(building.x, building.height + .68, building.z).project(camera);
-      const narrow = width < 590;
-      const x = (screenPoint.x + 1) * width / 2 - (narrow && id === 'moex' ? 25 : 0);
-      const y = (1 - screenPoint.y) * height / 2 + (narrow && id === 'hq' ? 16 : 0);
-      const coversRelay = id === 'hq' && orbitalBeam.visible;
-      const visible = !focusId && !coversRelay && x > 32 && x < width - 32 && y > 57 && y < height * .78;
-      if (building.visible !== visible) {
-        building.visible = visible;
-        marker.hidden = !visible;
-      }
-      if (!visible) {
-        marker.hidden = true;
-        continue;
-      }
-      marker.style.left = Math.round(x) + 'px';
-      marker.style.top = Math.round(y) + 'px';
-      marker.classList.toggle('has-activity', Boolean(activity));
-    }
-  }
-
-  function update(data, relay) {
-    const clock = performance.now() / 1000;
-    armRelay(relay, clock);
+  function update(data, nextRelay, snap = false) {
+    const time = performance.now() / 1000;
+    if (relay?.updatedAt !== nextRelay?.updatedAt || relay?.stage !== nextRelay?.stage) relayAt = time;
+    relay = nextRelay;
     for (const agent of agents) {
-      const next = data.get(agent.profile.id) ?? empty;
-      if (agent.row.district !== next.district || agent.row.action !== next.action) {
-        agent.launch.copy(agent.group.position);
-        agent.started = clock;
-        agent.inFlight = agent.row.district !== next.district;
+      const next = data.get(agent.profile.id);
+      if (!next) continue;
+      if (snap) {
+        agent.travel = null;
+        agent.rig.position.copy(places.get(next.district).work);
+        agent.place = next.district;
+      } else if (next.district !== agent.row.district) {
+        commute(agent, next.district, time);
       }
       agent.row = next;
     }
-    for (const [id, building] of buildings) {
-      const active = agents.filter(agent => agent.row.district === id && agent.row.action !== 'idle');
-      const actions = [...new Set(active.map(agent => stateLabel(agent.row)))];
-      const activity = actions.length > 1 ? actions[0] + ' · +' + (actions.length - 1) : (actions[0] ?? '');
-      building.activity = activity;
-      const track = building.marker.querySelector('em');
-      track.textContent = activity;
-      track.hidden = !activity;
+    for (const [id, info] of places) {
+      const active = agents.find(agent => agent.row.action !== 'idle' && agent.row.district === id);
+      const flag = info.marker.querySelector('em');
+      flag.textContent = active ? stateLabel(active.row) : '';
+      flag.hidden = !active;
     }
   }
 
-  let then = performance.now() / 1000;
-  const end = V();
-  const direction = V();
+  const raycaster = new THREE.Raycaster();
+  const pointer = new THREE.Vector2();
+  let clickAnchor;
+  elements.canvas.addEventListener('pointerdown', event => { clickAnchor = [event.clientX, event.clientY]; });
+  elements.canvas.addEventListener('pointerup', event => {
+    if (!clickAnchor || Math.hypot(event.clientX - clickAnchor[0], event.clientY - clickAnchor[1]) > 7) return;
+    if (focus || follower) return;
+    const bounds = elements.canvas.getBoundingClientRect();
+    pointer.set((event.clientX - bounds.left) / width * 2 - 1, -(event.clientY - bounds.top) / height * 2 + 1);
+    raycaster.setFromCamera(pointer, camera);
+    const hits = raycaster.intersectObjects([...places.values()].map(info => info.root));
+    if (!hits.length) return;
+    for (let parent = hits[0].object; parent; parent = parent.parent) {
+      const target = [...places.values()].find(info => info.root === parent);
+      if (target) { selectDistrict(target.id); break; }
+    }
+  });
+
+  let last = performance.now() / 1000;
+  let interior;
+  let previousWidth = 0;
+  let previousHeight = 0;
+  const rotation = vec();
   function render(ms) {
     const time = ms / 1000;
-    const delta = Math.min(.065, Math.max(.001, time - then));
-    then = time;
-    const visualTime = reducedMotion.matches ? 0 : time;
-    animateCamera(time, delta);
-    controls.update();
-    updateProjection();
-    updateTicker(visualTime);
-    updateRadar(visualTime);
-    updateWater(visualTime);
-    const returning = updateOrbital(time);
-    for (const [, building] of buildings) setWallFade(building, delta);
+    const dt = Math.min(.05, time - last);
+    last = time;
+    const motion = !reducedMotion.matches;
     for (const agent of agents) {
-      const building = buildings.get(agent.row.district);
-      const elapsed = time - agent.started;
-      const flying = !reducedMotion.matches && agent.inFlight && elapsed < 2.54;
-      if (flying) flightPosition(agent, building, elapsed, end);
-      else end.copy(positionInside(agent, building, time));
-      direction.copy(end).sub(agent.lastPosition);
-      if (Math.hypot(direction.x, direction.z) > .005) {
-        const yaw = Math.atan2(direction.x, direction.z);
-        const step = Math.atan2(Math.sin(yaw - agent.group.rotation.y), Math.cos(yaw - agent.group.rotation.y));
-        agent.group.rotation.y += step * Math.min(delta * 9, 1);
+      let walking = false;
+      let driving = false;
+      if (agent.travel) {
+        let elapsed = time - agent.travel.started;
+        const segment = agent.travel.steps.find(step => {
+          if (elapsed < step.duration) return true;
+          elapsed -= step.duration;
+          return false;
+        });
+        if (segment && motion) {
+          agent.rig.position.copy(segment.from).lerp(segment.to, elapsed / segment.duration);
+          rotation.copy(segment.to).sub(segment.from);
+          if (Math.hypot(rotation.x, rotation.z) > .006) {
+            agent.rig.rotation.y = Math.atan2(rotation.x, rotation.z);
+            driving = segment.drive;
+            walking = !driving;
+          }
+        } else {
+          agent.rig.position.copy(places.get(agent.travel.destination).work);
+          agent.place = agent.travel.destination;
+          agent.travel = null;
+        }
       }
-      agent.lastPosition.copy(end);
-      agent.group.position.copy(end);
-      const active = !agent.profile.job || agent.row.action !== 'idle';
-      const enclosed = building.id !== 'lounge';
-      const showExterior = flying || focusId !== building.id;
-      agent.group.visible = active && (!focusId || focusId === building.id);
-      agent.group.scale.setScalar(follower === agent ? 1.68 : focusId === building.id ? 1.29 : 1);
-      if (active && showExterior && enclosed && !flying) {
-        agent.group.position.set(building.x + (agent.index - 2) * .53, building.height + .64 + Math.sin(visualTime * 4 + agent.index) * .13, building.z + .68);
+      agent.car.visible = driving;
+      agent.body.visible = !driving;
+      agent.rig.visible = !agent.profile.job || agent.row.action !== 'idle';
+      agent.body.position.y = walking ? Math.abs(Math.sin(time * 13)) * .09 : 0;
+      const swing = walking ? Math.sin(time * 13) * .68 : 0;
+      agent.legs.forEach((leg, index) => { leg.rotation.x = swing * (index ? 1 : -1); });
+      agent.arms.forEach((arm, index) => { arm.rotation.x = swing * (index ? -1 : 1) * .61; });
+    }
+
+    const nextInterior = follower ? (follower.travel ? null : follower.place) : focus;
+    if (interior !== nextInterior) {
+      if (places.has(interior)) {
+        places.get(interior).room.visible = false;
+        places.get(interior).exterior.visible = true;
       }
-      effects(agent, building, visualTime, active && !flying && focusId === building.id);
-      updatePackets(agent, building, visualTime, active && !focusId);
-      if (agent === reporter && returning !== null) {
-        const progress = reducedMotion.matches ? 1 : Math.min(returning / 1.7, 1);
-        agent.group.position.copy(returnStart).lerp(rooftop, progress);
-        agent.group.position.y += Math.sin(progress * Math.PI) * 2.1;
-        agent.group.visible = true;
-        agent.folder.visible = true;
+      if (places.has(nextInterior)) {
+        places.get(nextInterior).room.visible = true;
+        places.get(nextInterior).exterior.visible = false;
+      }
+      interior = nextInterior;
+    }
+    if (follower) {
+      const target = projected.copy(follower.rig.position).add(vec(0, .64, 0));
+      if (cameraMove) {
+        displacement.copy(target).sub(cameraMove.target);
+        cameraMove.target.copy(target);
+        cameraMove.position.add(displacement);
+      } else {
+        displacement.copy(target).sub(controls.target).multiplyScalar(motion ? Math.min(1, dt * 8) : 1);
+        camera.position.add(displacement);
+        controls.target.add(displacement);
       }
     }
-    selectionRing.visible = Boolean(follower?.group.visible);
-    if (selectionRing.visible) {
-      const { x, y, z } = follower.group.position;
-      selectionRing.position.set(x, Math.max(.52, y - .53), z);
+    if (cameraMove) {
+      const alpha = motion ? Math.min(1, dt * 7.1) : 1;
+      camera.position.lerp(cameraMove.position, alpha);
+      controls.target.lerp(cameraMove.target, alpha);
+      camera.zoom += (cameraMove.zoom - camera.zoom) * alpha;
+      camera.updateProjectionMatrix();
+      if (camera.position.distanceToSquared(cameraMove.position) < .002 && Math.abs(camera.zoom - cameraMove.zoom) < .004) cameraMove = null;
     }
-    placeMarkers();
+    controls.update();
+    camera.updateMatrixWorld();
+    const dockWidth = board.offsetWidth;
+    const dockHeight = board.offsetHeight;
+    if (previousWidth !== dockWidth || previousHeight !== dockHeight) {
+      previousWidth = dockWidth;
+      previousHeight = dockHeight;
+      layout();
+    }
+    const covered = elements.app.hasAttribute('data-folded');
+    for (const { marker, spec } of places.values()) {
+      projected.set(spec.x, spec.height + .27, spec.z).project(camera);
+      const x = (projected.x * .5 + .5) * width;
+      const y = (-projected.y * .5 + .5) * height;
+      marker.hidden = covered || Boolean(focus || follower) || x < 0 || x > width || y < 61 || y > height - dockHeight - 45;
+      if (!marker.hidden) {
+        const edge = marker.offsetWidth * .5 + 4;
+        const anchor = Math.max(edge, Math.min(width - edge, x));
+        marker.style.transform = 'translate(' + anchor + 'px,' + y + 'px) translate(-50%,-100%)';
+      }
+    }
+    const receiving = relay?.stage === 'receiving';
+    const returning = relay?.stage === 'returning' || (relay?.stage === 'sent' && time - relayAt < 3.5);
+    orbital.visible = Boolean(receiving || returning) && !focus && !follower;
+    if (orbital.visible) {
+      const phase = motion ? ((time - relayAt) * .54) % 1 : .36;
+      packet.position.y = mast.y + 12 * (receiving ? 1 - phase : phase);
+    }
+    if (options.snow && motion) {
+      for (let n = 0; n < signalCount; n++) {
+        const i = n * 3;
+        flakes[i + 1] -= dt * (.52 + (n % 7) * .14);
+        flakes[i] += dt * .18;
+        if (flakes[i + 1] <= .28) flakes[i + 1] = 23.7;
+        if (flakes[i] > 34) flakes[i] = -34;
+      }
+      flakesGeometry.attributes.position.needsUpdate = true;
+    }
     renderer.render(scene, camera);
   }
+  layout();
   renderer.setAnimationLoop(render);
-
-  return { select, update };
+  return { select, update, setOptions, layout };
 }

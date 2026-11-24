@@ -3,98 +3,107 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
-  <meta name="theme-color" content="#080e20">
-  <title>Город агентов</title>
-  <link rel="stylesheet" href="./office.css?v=1ce81d6a4f0a">
+  <meta name="theme-color" content="#e8f0f5">
+  <meta name="description" content="Зимний офис AI Hub. Задания, маршруты и рабочие места агентов.">
+  <title>Зимний город · AI Hub</title>
+  <link rel="stylesheet" href="./office.css?v=42a5c3430019">
   <script type="importmap">
-    {
-      "imports": {
-        "three": "https://cdn.jsdelivr.net/npm/three@0.180.0/build/three.module.js",
-        "three/addons/": "https://cdn.jsdelivr.net/npm/three@0.180.0/examples/jsm/"
-      }
-    }
+    {"imports":{"three":"https://cdn.jsdelivr.net/npm/three@0.180.0/build/three.module.js",
+      "three/addons/":"https://cdn.jsdelivr.net/npm/three@0.180.0/examples/jsm/"}}
   </script>
   <script defer src="https://telegram.org/js/telegram-web-app.js"></script>
   <script defer src="./config.js"></script>
-  <script defer src="./office.js?v=e6b8fde05308"></script>
+  <script defer src="./office.js?v=e2fe81a8087a"></script>
 </head>
 <body>
   <main class="app" id="app">
     <div id="world" class="world">
-      <canvas id="city" aria-label="Трёхмерная карта города. Перетаскивание вращает камеру, щипок или колёсико меняет масштаб."></canvas>
-      <div id="markers" class="markers"></div>
-      <div class="horizon" aria-hidden="true"></div>
+      <canvas id="city" aria-label="Зимний 3D-город. Перетаскивайте для поворота, используйте колёсико или щипок для зума."></canvas>
+      <div id="markers" class="markers" aria-label="Здания города"></div>
     </div>
 
-    <header class="topbar">
+    <header class="topbar chrome">
       <div class="identity">
-        <div class="mark" aria-hidden="true"><i></i><i></i><i></i></div>
-        <h1>Город агентов</h1>
+        <span class="mark" aria-hidden="true">❄</span>
+        <div><span class="brand">AI HUB</span><h1>Зимний город</h1></div>
       </div>
-      <div id="connection" class="connection" role="status" data-mode="demo">Демо</div>
+      <div class="top-controls">
+        <div id="connection" class="connection" role="status" data-mode="demo">Демо</div>
+        <button id="music-toggle" class="icon" type="button" aria-label="Включить музыку" aria-pressed="false" title="Музыка">♪</button>
+        <button id="settings-toggle" class="icon" type="button" aria-label="Настройки города" title="Настройки">⚙</button>
+      </div>
     </header>
 
-    <aside id="district" class="district glass" aria-label="Выбранное место" hidden>
-      <div>
-        <div class="xray"><span aria-hidden="true"></span><b id="district-mode">РЕНТГЕН</b></div>
-        <h2 id="district-name"></h2>
-        <p id="district-description"></p>
-      </div>
-      <button id="overview" class="overview" type="button">Обзор всего города</button>
+    <aside id="district" class="district glass chrome" aria-label="Выбранное место" hidden>
+      <div><p id="district-mode" class="district-mode">Интерьер</p><h2 id="district-name"></h2><p id="district-description"></p></div>
+      <button id="overview" class="outline-button" type="button">К городу</button>
     </aside>
 
-    <div class="bottom">
-      <nav class="districts" aria-label="Районы города">
-        <button type="button" data-district="hq" aria-pressed="false" style="--district-color:#ffcc91">Таймс-сквер</button>
-        <button type="button" data-district="moex" aria-pressed="false" style="--district-color:#72aaff">MOEX</button>
-        <button type="button" data-district="grants" aria-pressed="false" style="--district-color:#67f5b0">Радар</button>
-        <button type="button" data-district="dev" aria-pressed="false" style="--district-color:#51eeff">Dev Lab</button>
-        <button type="button" data-district="lounge" aria-pressed="false" style="--district-color:#fc93ee">Cyber Lounge</button>
-      </nav>
-      <section class="dashboard glass" aria-labelledby="agents-heading">
-        <div class="dashboard-header">
-          <div>
-            <h2 id="agents-heading">Агенты</h2>
-            <p id="note">Подключаемся к серверу статусов…</p>
+    <section class="dock" id="dock" aria-label="Управление городом">
+      <button id="board-toggle" class="board-toggle glass" type="button" aria-expanded="true" aria-controls="board">
+        <span class="grip" aria-hidden="true"></span><span id="board-label">Свернуть панель</span>
+        <span class="chevron" aria-hidden="true"></span>
+      </button>
+      <div id="board" class="board glass">
+        <nav class="districts" aria-label="Районы города">
+          <button type="button" data-district="hq" aria-pressed="false">Эмпайр-стейт</button>
+          <button type="button" data-district="moex" aria-pressed="false">MOEX</button>
+          <button type="button" data-district="grants" aria-pressed="false">Радар</button>
+          <button type="button" data-district="dev" aria-pressed="false">Dev Lab</button>
+          <button type="button" data-district="lounge" aria-pressed="false">Парк</button>
+        </nav>
+        <div class="board-scroll">
+          <div class="dashboard-header">
+            <div><h2>Агенты</h2><p id="note">Подключаемся к серверу статусов…</p></div>
+            <div class="dashboard-controls">
+              <button id="demo" class="outline-button demo-button" type="button" aria-pressed="false"><span id="demo-label">Демо</span></button>
+              <button id="new-task" class="primary-button" type="button" hidden>Новое задание</button>
+            </div>
           </div>
-          <div class="dashboard-controls">
-            <button id="demo" class="demo-button" type="button" aria-pressed="false">
-              <span class="play" aria-hidden="true"></span><span id="demo-label">Демо-режим (Экшн)</span>
-            </button>
-            <button id="new-task" class="primary-button" type="button" hidden>Новое задание</button>
+          <div id="agent-inspection" class="agent-inspection" hidden>
+            <div><strong id="inspection-agent"></strong> <span id="inspection-action"></span><p id="inspection-detail"></p></div>
+            <button id="district-view" class="outline-button" type="button">Осмотреть этаж</button>
           </div>
+          <div id="orbital-status" class="orbital-status" role="status" hidden><strong id="orbital-stage"></strong><span id="orbital-detail"></span></div>
+          <p id="task-receipt" class="task-receipt" role="status" hidden></p>
+          <div id="agents" class="agents"></div>
+          <div id="job-status" class="job-status" aria-label="Фоновые задачи" hidden></div>
+          <p id="world-help" class="world-help" hidden></p>
         </div>
-        <div id="agent-inspection" class="agent-inspection" hidden>
-          <div><strong id="inspection-agent"></strong> <span id="inspection-action"></span><p id="inspection-detail"></p></div>
-          <button id="district-view" class="outline-button" type="button">Вид этажа</button>
-        </div>
-        <div id="orbital-status" class="orbital-status" role="status" hidden>
-          <strong id="orbital-stage"></strong><span id="orbital-detail"></span>
-        </div>
-        <p id="task-receipt" class="task-receipt" role="status" hidden></p>
-        <div id="agents" class="agents"></div>
-        <div id="job-status" class="job-status" aria-label="Фоновые задачи" hidden></div>
-      </section>
-      <p id="world-help" class="world-help">Свайп для поворота · Щипок для зума · Тап для осмотра</p>
-    </div>
+      </div>
+    </section>
   </main>
+
   <dialog id="task-dialog" class="task-dialog" aria-labelledby="task-title">
     <form id="task-form">
       <div class="task-heading">
         <h2 id="task-title">Новое задание</h2>
-        <button id="close-task" type="button" class="outline-button" aria-label="Закрыть">×</button>
+        <button id="close-task" type="button" class="icon" aria-label="Закрыть">×</button>
       </div>
       <label for="task-project">Проект</label>
       <select id="task-project" name="project">
-        <option value="dev">Dev Lab</option>
-        <option value="moex">MOEX Quant Terminal</option>
-        <option value="grants">Радар грантов</option>
+        <option value="dev">Dev Lab</option><option value="moex">MOEX Quant Terminal</option><option value="grants">Радар грантов</option>
       </select>
       <label for="task-text">Что нужно сделать</label>
       <textarea id="task-text" name="task" rows="5" maxlength="6000" required></textarea>
-      <label class="send-files"><input id="send-files" type="checkbox"> Прислать готовые файлы в Telegram</label>
+      <label class="checkbox"><input id="send-files" type="checkbox"> Прислать готовые файлы в Telegram</label>
       <p id="task-message" role="status" hidden></p>
       <button id="submit-task" class="primary-button" type="submit">Запустить</button>
+    </form>
+  </dialog>
+
+  <dialog id="settings-dialog" class="task-dialog" aria-labelledby="settings-title">
+    <form method="dialog">
+      <div class="task-heading"><h2 id="settings-title">Настройки города</h2><button class="icon" aria-label="Закрыть">×</button></div>
+      <label for="light">Время суток</label>
+      <select id="light"><option value="day">День</option><option value="auto">По местному времени</option><option value="dusk">Вечер</option><option value="night">Ночь</option></select>
+      <label for="transport">Как агенты добираются</label>
+      <select id="transport"><option value="mixed">Пешком и на машинах</option><option value="walk">Пешком</option><option value="car">На машинах</option></select>
+      <label class="checkbox"><input id="snow" type="checkbox"> Снегопад</label>
+      <label class="checkbox"><input id="music" type="checkbox"> Новогодняя музыка</label>
+      <label for="volume">Громкость <output id="volume-value">30%</output></label>
+      <input id="volume" type="range" min="0" max="100" value="30">
+      <button id="reset-settings" class="outline-button" type="button">Сбросить настройки</button>
     </form>
   </dialog>
 </body>
