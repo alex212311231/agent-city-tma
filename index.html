@@ -6,19 +6,23 @@
   <meta name="theme-color" content="#e8f0f5">
   <meta name="description" content="Зимний офис AI Hub. Задания, маршруты и рабочие места агентов.">
   <title>Зимний город · AI Hub</title>
-  <link rel="stylesheet" href="./office.css?v=42a5c3430019">
+  <link rel="stylesheet" href="./office.css?v=0eadce7290ec">
   <script type="importmap">
     {"imports":{"three":"https://cdn.jsdelivr.net/npm/three@0.180.0/build/three.module.js",
-      "three/addons/":"https://cdn.jsdelivr.net/npm/three@0.180.0/examples/jsm/"}}
+      "three/addons/":"https://cdn.jsdelivr.net/npm/three@0.180.0/examples/jsm/",
+      "city/world":"./city-world.mjs?v=2a7367f43fb0",
+      "city/navigation":"./city-navigation.mjs?v=4a95ca0200e6",
+      "city/displays":"./city-displays.mjs?v=3f54c21c24a7",
+      "city/music":"./city-music.mjs?v=16ecba2176dc"}}
   </script>
   <script defer src="https://telegram.org/js/telegram-web-app.js"></script>
   <script defer src="./config.js"></script>
-  <script defer src="./office.js?v=e2fe81a8087a"></script>
+  <script defer src="./office.js?v=587be271d6ec"></script>
 </head>
 <body>
   <main class="app" id="app">
     <div id="world" class="world">
-      <canvas id="city" aria-label="Зимний 3D-город. Перетаскивайте для поворота, используйте колёсико или щипок для зума."></canvas>
+      <canvas id="city" tabindex="0" aria-label="Зимний 3D-город. Перетаскивайте для поворота, используйте колёсико или щипок для зума."></canvas>
       <div id="markers" class="markers" aria-label="Здания города"></div>
     </div>
 
@@ -33,6 +37,18 @@
         <button id="settings-toggle" class="icon" type="button" aria-label="Настройки города" title="Настройки">⚙</button>
       </div>
     </header>
+
+    <div class="camera-switch glass" role="group" aria-label="Режим камеры">
+      <button type="button" id="orbit-mode" aria-label="Обзор города" aria-pressed="true">Обзор</button>
+      <button type="button" id="walk-mode" aria-label="От 1-го лица (Прогулка)" aria-pressed="false" disabled>Прогулка</button>
+    </div>
+    <div id="walk-hud" class="walk-hud" hidden>
+      <p id="walk-place" class="walk-place glass">Улица</p>
+      <p class="walk-help glass">WASD · Shift для ускорения · Зажмите левую кнопку для обзора</p>
+      <div class="joystick joystick-left" id="walk-move" aria-label="Движение"><i aria-hidden="true"></i></div>
+      <div class="joystick joystick-right" id="walk-look" aria-label="Поворот камеры"><i aria-hidden="true"></i></div>
+      <span class="walk-target" aria-hidden="true"></span>
+    </div>
 
     <aside id="district" class="district glass chrome" aria-label="Выбранное место" hidden>
       <div><p id="district-mode" class="district-mode">Интерьер</p><h2 id="district-name"></h2><p id="district-description"></p></div>

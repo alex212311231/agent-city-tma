@@ -127,3 +127,31 @@ input { accent-color: var(--pine); }
   .board-scroll { max-height: 23dvh; }
   .district { width: 260px; }
 }
+
+.camera-switch { position: absolute; z-index: 5; top: calc(env(safe-area-inset-top) + 18px); left: 50%;
+  transform: translateX(-50%); display: flex; gap: 3px; padding: 4px; border-radius: 23px; white-space: nowrap; }
+.camera-switch button { min-height: 34px; border: none; border-radius: 20px; padding: 4px 14px; font-size: .83rem; font-weight: 650; background: transparent; }
+.camera-switch button[aria-pressed="true"] { background: #2e5949; color: #fff; }
+.camera-switch button:disabled { opacity: .55; cursor: default; }
+.app[data-folded]:not([data-walking]) .camera-switch,
+.app[data-walking] .chrome, .app[data-walking] .dock, .app[data-walking] .markers { display: none; }
+.app[data-walking] #city { cursor: crosshair; }
+.walk-hud { position: absolute; inset: 0; pointer-events: none; z-index: 4; }
+.walk-place, .walk-help { position: absolute; width: max-content; max-width: calc(100% - 24px); border-radius: 20px; padding: 8px 13px; font-size: .81rem; }
+.walk-place { top: calc(env(safe-area-inset-top) + 69px); left: 50%; transform: translateX(-50%); font-weight: 700; }
+.walk-help { bottom: calc(env(safe-area-inset-bottom) + 13px); left: 50%; transform: translateX(-50%); text-align: center; }
+.walk-target { position: absolute; top: 50%; left: 50%; width: 4px; height: 4px; transform: translate(-50%,-50%);
+  background: #fcfff2; border-radius: 50%; box-shadow: 0 0 4px #18312e; }
+.joystick { display: none; position: absolute; align-items: center; justify-content: center; pointer-events: auto;
+  width: clamp(77px, 24vmin, 111px); height: clamp(77px, 24vmin, 111px); border-radius: 50%;
+  background: #1a2e3a58; border: 2px solid #fff8; touch-action: none; user-select: none;
+  bottom: calc(env(safe-area-inset-bottom) + 18px); }
+.joystick-left { left: max(23px, env(safe-area-inset-left)); }
+.joystick-right { right: max(23px, env(safe-area-inset-right)); }
+.joystick i { width: 39%; height: 39%; border-radius: 50%; background: #fff8; border: 1px solid #fffc; }
+@media (pointer: coarse) { .joystick { display: flex; } .walk-help { display: none; } }
+@media (max-width: 620px) {
+  .camera-switch { top: calc(env(safe-area-inset-top) + 54px); }
+  .app[data-walking] .camera-switch { top: calc(env(safe-area-inset-top) + 13px); }
+  .district { top: calc(env(safe-area-inset-top) + 103px); }
+}
