@@ -64,6 +64,8 @@ const profiles = [
   { id: 'coder', title: 'Coder', color: '#56eddf' },
   { id: 'tester', title: 'Tester', color: '#ffce82' },
   { id: 'reporter', title: 'Reporter', color: '#edabff' },
+  { id: 'lead', title: 'Тимлид', color: '#83abff' },
+  { id: 'scout', title: 'Scout', color: '#d4ff91' },
   { id: 'job-moex', title: 'Сбор MOEX', color: '#72aaff', job: 'moex' },
   { id: 'job-grants', title: 'Радар грантов', color: '#67f5b0', job: 'grants' },
 ];
@@ -134,11 +136,11 @@ for (const profile of profiles.filter(profile => !profile.job)) {
   });
 }
 
-function normalize(row, fallbackProject) {
+function normalize(row, profile) {
   const oldAction = Object.hasOwn(legacyActions, row?.phase) ? legacyActions[row.phase] : 'idle';
   const action = Object.hasOwn(actionNames, row?.action) ? row.action : oldAction;
-  const project = ['moex', 'grants', 'dev'].includes(row?.project) ? row.project : fallbackProject;
-  const district = action === 'idle' ? 'lounge' : (project ?? (row?.phase === 'planning' ? 'hq' : 'dev'));
+  const project = ['moex', 'grants', 'dev'].includes(row?.project) ? row.project : profile.job;
+  const district = action === 'idle' ? 'lounge' : profile.id === 'lead' ? 'hq' : (project ?? 'dev');
   return {
     action, district,
     phase: row?.phase,
@@ -154,7 +156,7 @@ function stateLabel(row) {
 function apply(snapshot) {
   rows = new Map(profiles.map(profile => [
     profile.id,
-    normalize(profile.job ? snapshot.jobs?.[profile.job] : snapshot.agents?.[profile.id], profile.job),
+    normalize(profile.job ? snapshot.jobs?.[profile.job] : snapshot.agents?.[profile.id], profile),
   ]));
   for (const [id, card] of cards) {
     const row = rows.get(id);
@@ -365,7 +367,7 @@ elements.taskForm.addEventListener('submit', async event => {
       elements.taskMessage.textContent = result.error ?? 'Сервис заданий временно недоступен.';
       return;
     }
-    elements.taskReceipt.textContent = 'Задание запущено · ' + result.label + '. Отчёт появится в чате.';
+    elements.taskReceipt.textContent = 'Задание принято · ' + result.label + '. Отчёт появится в чате.';
     elements.taskReceipt.hidden = false;
     elements.taskText.value = '';
     elements.sendFiles.checked = false;
@@ -1099,7 +1101,7 @@ function createCity(THREE, OrbitControls) {
         break;
       default:
         x = -2.8 + Math.sin(clock * .42 + agent.index) * .46;
-        z = (agent.index - 1) * 1.4 + Math.cos(clock * .43 + agent.index) * .42;
+        z = (agent.index - 2) * 1.15 + Math.cos(clock * .43 + agent.index) * .42;
     }
     const bounce = Math.sin(clock * 5.2 + agent.index) * (action === 'idle' ? .08 : .11);
     return point.set(building.x + x + offset, 1.1 + bounce, building.z + z);
