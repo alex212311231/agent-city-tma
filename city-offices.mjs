@@ -76,7 +76,7 @@ export function buildOffice(THREE,plot,displays,assets){
   const yaw=facing===1?0:Math.PI;
   const labels={hq:'ЭМПАЙР-СТЕЙТ · ШТАБ',moex:'MOEX TOWER',dev:'DEV LAB',grants:'GRANTS RADAR'};
   const silver=color('silver');
-  const glass=new THREE.MeshStandardMaterial({color:0xa8e4f7,transparent:true,opacity:.29,roughness:.39,depthWrite:false,side:THREE.DoubleSide});
+  const glass=new THREE.MeshStandardMaterial({color:0xa8e4f7,transparent:true,opacity:.19,roughness:.24,depthWrite:false,forceSinglePass:true});
   const amber=new THREE.MeshBasicMaterial({color:new THREE.Color(0xffdcb2).multiplyScalar(1.36)});
   let activity='idle';
   let model={};
@@ -100,13 +100,47 @@ export function buildOffice(THREE,plot,displays,assets){
     new THREE.Vector3(plot.x+x-w/2,y-h/2,plot.z+z-d/2),
     new THREE.Vector3(plot.x+x+w/2,y+h/2,plot.z+z+d/2));
 
-  const halfW=plot.width/2-.09,halfD=plot.depth/2-.09;
-  function deck(specs,y){
-    const west=shaft.x-shaft.w/2,east=shaft.x+shaft.w/2;
-    const north=shaft.z-shaft.d/2,south=shaft.z+shaft.d/2;
-    const join=(x1,x2,z1,z2)=>specs.push(['floor',(x1+x2)/2,y,(z1+z2)/2,x2-x1-.008,.16,z2-z1-.008]);
-    join(-halfW,west,-halfD,halfD);join(east,halfW,-halfD,halfD);
-    join(west,east,-halfD,north);join(west,east,south,halfD);
+  const halfW=plot.width/2,halfD=plot.depth/2;
+  function slab(hasShaft){
+    function outline(path,x1,z1,x2,z2){
+      path.moveTo(x1,z1);
+      path.lineTo(x2,z1);
+      path.lineTo(x2,z2);
+      path.lineTo(x1,z2);
+      path.closePath();
+      return path;
+    }
+    const shape=outline(new THREE.Shape(),-halfW,-halfD,halfW,halfD);
+    if(hasShaft)shape.holes.push(outline(new THREE.Path(),
+      shaft.x-shaft.w/2,shaft.z-shaft.d/2,shaft.x+shaft.w/2,shaft.z+shaft.d/2));
+    const geometry=new THREE.ExtrudeGeometry(shape,{depth:.16,bevelEnabled:false});
+    geometry.rotateX(Math.PI/2);
+    const positions=geometry.getAttribute('position');
+    const uv=geometry.getAttribute('uv');
+    for(let i=0;i<uv.count;i++)uv.setXY(i,positions.getX(i)/(halfW*2)+.5,positions.getZ(i)/(halfD*2)+.5);
+    geometry.clearGroups();
+    return geometry;
+  }
+  const openSlab=slab(true),closedSlab=slab(false);
+
+  function fixture(floor,name,options){
+    const {onReady,...placement}=options;
+    return assets.place(floor,name,{...placement,onReady(model,bounds){
+      onReady?.(model);
+      solid.push(bounds);
+    }});
+  }
+
+  function roomWalls(x,level,z,width,depth,doorOffset,doorWidth){
+    const left=x-width/2,right=x+width/2,entry=z+facing*depth/2;
+    const doorLeft=x+doorOffset-doorWidth/2,doorRight=x+doorOffset+doorWidth/2;
+    solid.push(
+      worldBox(left,level+1.5,z,.105,3,depth),
+      worldBox(right,level+1.5,z,.105,3,depth),
+      worldBox(x,level+1.5,z-facing*depth/2,width,3,.105),
+      worldBox((left+doorLeft)/2,level+1.5,entry,doorLeft-left,3,.105),
+      worldBox((right+doorRight)/2,level+1.5,entry,right-doorRight,3,.105)
+    );
   }
 
   function panel(parent,appearance,w,h,x,y,z,angle=yaw){
@@ -120,11 +154,11 @@ export function buildOffice(THREE,plot,displays,assets){
   function desk(floor,index,x,z,live){
     const angle=yaw;
     const display=live?displays.monitor(THREE):null;
-    const y=floors[index];
-    assets.place(floor,'desk',{x,z:z*facing,y:.015,yaw:angle,
+    fixture(floor,'desk',{x,z:z*facing,y:.003,yaw:angle,
       onReady(model){
         if(!display)return;
         const screen=model.getObjectByName('screen_lod1');
+        if(!screen?.isMesh)return;
         const geometry=screen.geometry.clone();
         const points=geometry.getAttribute('position');
         geometry.computeBoundingBox();
@@ -138,8 +172,7 @@ export function buildOffice(THREE,plot,displays,assets){
         screen.geometry=geometry;
         screen.material=display.material;
       }});
-    assets.place(floor,'chair',{x,y:.015,z:(z+.78)*facing,yaw:angle+Math.PI});
-    solid.push(worldBox(x,y+.37,z*facing,1.40,.74,.72));
+    fixture(floor,'chair',{x,y:.003,z:(z+.80)*facing,yaw:angle+Math.PI});
     if(display)faces.push({index,display});
     return display;
   }
@@ -158,13 +191,17 @@ export function buildOffice(THREE,plot,displays,assets){
 
   for(const [index,level] of floors.entries()){
     const floor=group(root,0,level,0);
-    const parts=[];
+    floor.name='office-level-'+index;
     floorGroups.push(floor);
-    deck(parts,-.093);
-    block(floor,assets.materials.wood,3.02,.005,0,halfW*2-6.16,.022,halfD*2-.15);
+    const deck=new THREE.Mesh(openSlab,assets.materials.wood);
+    deck.name='office-floor-slab';
+    floor.add(deck);
     const ceiling=group(floor);
+    ceiling.name='office-ceiling';
+    const plaster=new THREE.Mesh(index===2?closedSlab:openSlab,color('floor'));
+    plaster.position.y=4.54;
+    ceiling.add(plaster);
     const upper=[];
-    deck(upper,4.38);
     for(const x of [-4.4,2.94,8.6]){
       upper.push(['ink',x,4.267,0,.69,.066,halfD*2-.63]);
       block(ceiling,amber,x,4.226,0,.126,.025,halfD*2-.78);
@@ -172,7 +209,7 @@ export function buildOffice(THREE,plot,displays,assets){
     bulk(ceiling,upper);
     ceilings.push(ceiling);
 
-    const rearZ=-(halfD-.17)*facing;
+    const rearZ=-(halfD-.21)*facing;
     block(floor,assets.materials.wood,0,1.79,rearZ,10.6,3.52,.29);
     for(const side of [-1,1]){
       const x=side*(halfW-.63);
@@ -181,37 +218,21 @@ export function buildOffice(THREE,plot,displays,assets){
       if(index>0)block(floor,assets.materials.concrete,0,.42,side*(halfD-.10),halfW*2-.25,.82,.15);
     }
     const sign=displays.officeSign(THREE,labels[plot.id]);
-    panel(floor,sign,5.2,.7,0,3.14,rearZ+facing*.16);
-    const warm=new THREE.PointLight(0xffcb98,16,13,2);
-    const fill=new THREE.PointLight(0xc8e7ff,12,12,2);
-    warm.position.set(3.8,3.74,-3.35*facing);
-    fill.position.set(-4.2,3.60,3.05*facing);
-    floor.add(warm,fill);
-    floor.userData.lights=[warm,fill];
+    panel(floor,sign,5.2,.7,0,3.14,rearZ+facing*.153);
 
     if(index===0){
-      assets.place(floor,'reception',{x:4.87,z:-7.13*facing,y:.013,yaw});
-      assets.place(floor,'lounge',{x:7.92,z:6.55*facing,y:.018,yaw:yaw+Math.PI});
-      assets.place(floor,'plant',{x:9.7,z:5.53*facing,y:.023,height:1.30});
-      assets.place(floor,'plant',{x:-9.79,z:-6.5*facing,y:.023,height:1.29});
-      const roomX=-6.45,roomZ=4.47;
-      assets.place(floor,'meeting',{x:roomX,z:roomZ*facing,y:.027,yaw,
-        onReady(room){room.getObjectByName('door').rotation.y=Math.PI*.49;}});
-      const doorway=roomX+facing*2;
-      solid.push(
-        worldBox(roomX-3,level+1.5,roomZ*facing,.15,3,4),
-        worldBox(roomX+3,level+1.5,roomZ*facing,.15,3,4),
-        worldBox(roomX,level+1.5,(roomZ-2)*facing,6,3,.15),
-        worldBox((roomX-3+doorway-.46)/2,level+1.5,(roomZ+2)*facing,doorway-.46-(roomX-3),3,.15),
-        worldBox((doorway+.46+roomX+3)/2,level+1.5,(roomZ+2)*facing,roomX+3-doorway-.46,3,.15),
-        worldBox(roomX+.60,level+.40,roomZ*facing,2.60,.79,1.15),
-        worldBox(4.87,level+.53,-6.88*facing,3.17,1.04,1.69),
-        worldBox(7.92,level+.45,6.55*facing,2.0,.9,.84),
-        worldBox(9.0,level+.45,2.37*facing,.84,.90,2.0),
-        worldBox(-4.2,level+.45,-7.9*facing,2.0,.90,.84));
-      assets.place(floor,'lounge',{x:9.0,z:2.37*facing,y:.018,yaw:yaw-Math.PI/2});
-      assets.place(floor,'plant',{x:5.92,z:6.7*facing,y:.023,height:1.23});
-      assets.place(floor,'lounge',{x:-4.2,z:-7.9*facing,y:.018,yaw});
+      fixture(floor,'reception',{x:5.18,z:-8.11*facing,y:.003,yaw});
+      fixture(floor,'lounge',{x:8.02,z:6.72*facing,y:.003,yaw:yaw+Math.PI});
+      fixture(floor,'plant',{x:9.84,z:5.91*facing,y:.003,height:1.3});
+      fixture(floor,'plant',{x:-9.79,z:-6.8*facing,y:.003,height:1.29});
+      const roomX=-6.45,roomZ=5.15;
+      assets.place(floor,'meeting',{x:roomX,z:roomZ,y:.005,yaw,
+        onReady(room){const hinge=room.getObjectByName('door');if(hinge)hinge.rotation.y=Math.PI*.49;}});
+      roomWalls(roomX,level,roomZ,6,4,facing*2,.90);
+      solid.push(worldBox(roomX+.60*facing,level+.40,roomZ,2.62,.79,1.18));
+      fixture(floor,'lounge',{x:9,z:2.37*facing,y:.003,yaw:yaw-Math.PI/2});
+      fixture(floor,'plant',{x:5.92,z:6.98*facing,y:.003,height:1.23});
+      fixture(floor,'lounge',{x:-4.37,z:-7.9*facing,y:.003,yaw});
       desk(floor,index,4.8,-3.21,true);
       dashboard(floor,index,7.64,-3.85);
     }else{
@@ -220,27 +241,27 @@ export function buildOffice(THREE,plot,displays,assets){
       desk(floor,index,5,3.8,false);
       desk(floor,index,-2.4,4.3,false);
       dashboard(floor,index,5.38,-1.75);
-      assets.place(floor,'servers',{x:6.64,z:-7.0*facing,y:.012,yaw,width:5.25,depth:3.23,
+      assets.place(floor,'servers',{x:6.64,z:-7.0*facing,y:.005,yaw,width:5.25,depth:3.23,
         onReady(model){
           model.traverse(mesh=>{
             if(!mesh.isMesh||!mesh.name.startsWith('leds_'))return;
             mesh.material=mesh.material.clone();
             rackLights.push(mesh.material);
           });
-          model.getObjectByName('door').rotation.y=Math.PI*.49;
+          const hinge=model.getObjectByName('door');
+          if(hinge)hinge.rotation.y=Math.PI*.49;
         }});
-      solid.push(worldBox(6.64,level+1.34,-7.91*facing,5.27,2.67,1.48));
+      roomWalls(6.64,level,-7.0*facing,5.25,3.23,facing*1.75,.79);
+      solid.push(worldBox(6.35,level+1.34,-7.91*facing,3.75,2.67,1.02));
       for(const x of [-3.7,-.8]){
-        assets.place(floor,'archive',{x,z:-6.16*facing,y:.019,yaw,height:2.45,width:1.88});
-        solid.push(worldBox(x,level+1.23,-6.16*facing,1.92,2.46,.71));
+        fixture(floor,'archive',{x,z:-6.16*facing,y:.003,yaw,height:2.45,width:1.88});
       }
       block(floor,assets.materials.wood,-5.6,.49,7.81*facing,2.3,.94,.73);
       assets.place(floor,'coffee',{x:-5.96,y:.98,z:7.81*facing,yaw:yaw+Math.PI});
-      assets.place(floor,'lounge',{x:-8.76,y:.017,z:5.39*facing,yaw:facing*Math.PI*.5});
-      assets.place(floor,'plant',{x:9.25,y:.017,z:6.7*facing,height:1.32});
+      fixture(floor,'lounge',{x:-8.76,y:.003,z:5.39*facing,yaw:facing*Math.PI*.5});
+      fixture(floor,'plant',{x:9.25,y:.003,z:6.7*facing,height:1.32});
       solid.push(worldBox(-5.6,level+.49,7.81*facing,2.3,.95,.75));
     }
-    bulk(floor,parts);
   }
 
   const incident=group(floorGroups[1],6.90,2.57,-4.07*facing);
@@ -258,13 +279,25 @@ export function buildOffice(THREE,plot,displays,assets){
   }
   block(cabin,glass,0,1.28,-facing*(shaft.d/2-.135),shaft.w-.22,2.56,.081);
   const doors=[-1,1].map(sign=>block(cabin,glass,sign*.734,1.25,facing*(shaft.d/2-.098),1.40,2.50,.057));
+  const shaftHeight=floors[2]+4.36;
+  const shaftView=group(root);
+  const shaftGlass=glass.clone();
+  shaftGlass.opacity=.13;
+  block(shaftView,'silver',shaft.x,floors[0]-.25,shaft.z,shaft.w,.15,shaft.d);
   for(const side of [-1,1]){
-    const x=shaft.x+side*(shaft.w/2+.16);
-    block(root,silver,x,7.51,shaft.z-facing*.73,.15,15,.13);
-    solid.push(worldBox(x,7.51,shaft.z,.19,15,shaft.d-.09));
+    const x=shaft.x+side*(shaft.w/2+.045);
+    block(shaftView,shaftGlass,x,shaftHeight/2,shaft.z,.09,shaftHeight,shaft.d);
+    block(shaftView,silver,x+side*.061,shaftHeight/2,shaft.z-facing*.73,.10,shaftHeight,.13);
+    solid.push(worldBox(x,shaftHeight/2,shaft.z,.09,shaftHeight,shaft.d));
   }
-  solid.push(worldBox(shaft.x,7.5,shaft.z-facing*shaft.d/2,shaft.w,15,.17));
-  const gates=floorGroups.map(floor=>block(floor,glass,shaft.x,1.25,front+facing*.105,shaft.w-.065,2.50,.044));
+  const rear=shaft.z-facing*(shaft.d/2+.054);
+  block(shaftView,shaftGlass,shaft.x,shaftHeight/2,rear,shaft.w,shaftHeight,.106);
+  solid.push(worldBox(shaft.x,shaftHeight/2,rear,shaft.w,shaftHeight,.106));
+  const gates=floorGroups.map(floor=>block(floor,glass,shaft.x,1.27,front,shaft.w,2.54,.052));
+  for(const level of floors){
+    block(shaftView,'ink',shaft.x,level+3.53,front,shaft.w,1.84,.072);
+  }
+  const shaftFront=worldBox(shaft.x,shaftHeight/2,front,shaft.w,shaftHeight,.13);
   let lift={at:0,target:0,y:floors[0],moving:false,age:0,lastPlayer:-Infinity};
 
   function person(index){
@@ -300,7 +333,10 @@ export function buildOffice(THREE,plot,displays,assets){
   function request(position,feet,next,time){
     const current=info(position,feet);
     if(!current||lift.moving)return false;
-    if(next===null)shift(current.floor,time,true);
+    if(next===null){
+      if(current.inside||lift.at===current.floor)return false;
+      shift(current.floor,time,true);
+    }
     else if(current.inside&&Number.isInteger(next)&&next>=0&&next<floors.length)shift(next,time,true);
     else return false;
     return true;
@@ -312,11 +348,11 @@ export function buildOffice(THREE,plot,displays,assets){
   }
   function collision(position,feet){
     const index=floorOf(feet);
-    if(!lift.moving&&lift.at===index)return solid;
-    return [...solid,worldBox(shaft.x,floors[index]+1.6,front,shaft.w,3.16,.16)];
+    if(!lift.moving&&lift.at===index&&lift.age>=.23)return solid;
+    return [...solid,shaftFront];
   }
   function set(next,time){
-    const key=[next.activity,next.subject,next.test_result,next.test_count,next.code_snippet,next.current_log].join('\u001f');
+    const key=[next.activity,next.title,next.subject,next.test_result,next.test_count,next.code_snippet,next.current_log].join('\u001f');
     if(key===previous)return;
     previous=key;
     if(next.activity!==activity){
@@ -329,12 +365,11 @@ export function buildOffice(THREE,plot,displays,assets){
   function show(walking,focus,chosen,position){
     const visible=walking?Math.hypot(position.x-plot.x,position.z-plot.z)<26:focus;
     selected=walking?null:chosen;
+    shaftView.visible=selected===null;
     if(visible!==visiblePreviously){ root.visible=visible;visiblePreviously=visible; }
     floorGroups.forEach((floor,index)=>{
       floor.visible=selected===null||selected===index;
       ceilings[index].visible=selected===null;
-      const lit=walking?Math.abs(position.y-floors[index]-1.75)<3.25:index===selected;
-      for(const light of floor.userData.lights)light.visible=lit;
     });
   }
 
@@ -344,10 +379,10 @@ export function buildOffice(THREE,plot,displays,assets){
     write_code:[[2.35,-1.31],[3.30,-1.39],[5.25,-1.02],[-2.4,5.09],[.48,1.84]],
     run_tests:[[6.28,-4.57],[8.19,-4.54],[7.22,-3.41],[5.15,-3.57],[8.21,-2.88]],
     error:[[6.28,-4.57],[8.19,-4.54],[7.22,-3.47],[5.02,-3.59],[8.19,-2.88]],
-    deploy_report:[[2.35,-.88],[4.2,1.26],[6.4,-3.4],[-2.3,2.7],[-3.6,3.7]],
+    deploy_report:[[2.35,-.47],[4.2,1.26],[6.4,-3.4],[-2.3,2.7],[-3.6,3.7]],
   };
   const courierSpawn=shaft.x;
-  function ride(actor,time,dt,motion,playerNear){
+  function ride(actor,time,motion,playerNear){
     if(activity==='idle'||!motion||(playerNear||time-lift.lastPlayer<8)&&courier.mode==='idle'){
       courier={mode:'idle',since:time,target:stages[activity].level};
       return false;
@@ -365,9 +400,11 @@ export function buildOffice(THREE,plot,displays,assets){
     if(courier.mode==='approach'){
       const p=Math.min(1,(time-courier.since)/(outbound?2.7:2.1));
       if(outbound){
-        const across=Math.min(1,p*1.65);
-        x=2.35+(courierSpawn-2.35)*across;
-        z=1.25*facing+(outside-1.25*facing)*Math.max(0,(p-.606)/.394);
+        const approach=Math.min(1,p/.60);
+        if(p<.60){
+          x=-2.22;
+          z=1.25*facing+(outside-1.25*facing)*approach;
+        }else x=-2.22+(courierSpawn+2.22)*((p-.60)/.40);
       }else x=-2.45+(courierSpawn+2.45)*p;
       if(p===1){
         if(!lift.moving&&lift.at!==courier.origin)shift(courier.origin,time,false);
@@ -400,7 +437,7 @@ export function buildOffice(THREE,plot,displays,assets){
     }
     cabin.position.y=lift.y;
     cabin.visible=selected===null||Math.abs(lift.y-floors[selected])<1.2;
-    gates.forEach((gate,index)=>{gate.visible=lift.moving||lift.at!==index;});
+    gates.forEach((gate,index)=>{gate.visible=lift.moving||lift.at!==index||lift.age<.23;});
     const openness=lift.moving?Math.max(0,1-lift.age*4):Math.min(1,lift.age*3.2);
     doors.forEach((door,i)=>{door.position.x=(i?1:-1)*(.734+.65*openness);door.visible=openness<.96;});
     if(!root.visible)return;
@@ -414,7 +451,7 @@ export function buildOffice(THREE,plot,displays,assets){
     }
     for(const npc of crew){
       const {index,actor}=npc;
-      const riding=index===4&&ride(npc,time,dt,motion,nearby);
+      const riding=index===4&&ride(npc,time,motion,nearby);
       let walking=false;
       let typing=false;
       npc.paper.visible=false;
@@ -423,11 +460,11 @@ export function buildOffice(THREE,plot,displays,assets){
       if(!riding){
         let [x,z]=placements[activity][index];
         let level=target;
-        if(activity==='deploy_report'&&index===4){x=2.35;z=1.25;}
+        if(activity==='deploy_report'&&index===4){x=-2.22;z=1.25;}
         if(activity==='read_files'&&index<2){
           const p=(elapsed*.24+index*.38)%1;
           const lane=p<.12?0:p<.5?(p-.12)/.38:p<.62?1:1-(p-.62)/.38;
-          const dx=1.0+index*.8-x;
+          const dx=-2.70+index*2.72-x;
           const dz=1.1-z;
           x=x+dx*lane;
           z=z+(1.1-z)*lane;

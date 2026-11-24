@@ -1,6 +1,6 @@
 import * as THREE from 'three';
 import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
-import { RGBELoader } from 'three/addons/loaders/RGBELoader.js';
+import { HDRLoader } from 'three/addons/loaders/HDRLoader.js';
 import { KTX2Loader } from 'three/addons/loaders/KTX2Loader.js';
 import { MeshoptDecoder } from 'three/addons/libs/meshopt_decoder.module.js';
 import { clone as cloneSkeleton } from 'three/addons/utils/SkeletonUtils.js';
@@ -18,12 +18,20 @@ export function createAssets(renderer, scene) {
   const models = new GLTFLoader().setKTX2Loader(basis).setMeshoptDecoder(MeshoptDecoder);
   const textures = new THREE.TextureLoader();
   const pending = new Map();
+  const environmentAssets=[];
   const report = (name, error) => console.error('Не удалось загрузить ресурс города ' + name, error);
   function load(name) {
     if (!pending.has(name)) {
       const resource = models.loadAsync(path(name + '.glb')).then(model => {
-        model.scene.updateMatrixWorld();
-        return model;
+        const bundledLights=[];
+        model.scene.traverse(node=>{if(node.isLight)bundledLights.push(node);});
+        for(const light of bundledLights)light.removeFromParent();
+        const bounds = new THREE.Box3().setFromObject(model.scene, true);
+        const size = bounds.getSize(new THREE.Vector3());
+        if (![size.x,size.y,size.z].every(value=>value>0&&Number.isFinite(value))) {
+          throw new Error('Некорректные размеры модели');
+        }
+        return {...model,bounds,size};
       });
       pending.set(name, resource);
     }
@@ -31,7 +39,13 @@ export function createAssets(renderer, scene) {
   }
 
   function texture(name, repeat, colorSpace = THREE.NoColorSpace) {
-    const map = textures.load(path(name), undefined, undefined, error => report(name, error));
+    let map;
+    environmentAssets.push(new Promise(resolve=>{
+      map=textures.load(path(name),resolve,undefined,error=>{
+        report(name,error);
+        resolve();
+      });
+    }));
     map.colorSpace = colorSpace;
     map.wrapS = map.wrapT = THREE.RepeatWrapping;
     map.repeat.set(repeat, repeat);
@@ -55,13 +69,13 @@ export function createAssets(renderer, scene) {
     }),
   };
 
-  void new RGBELoader().loadAsync(path('urban-dusk.hdr')).then(hdr => {
+  environmentAssets.push(new HDRLoader().loadAsync(path('urban-dusk.hdr')).then(hdr => {
     hdr.mapping = THREE.EquirectangularReflectionMapping;
     scene.environment = hdr;
     scene.background = hdr;
     scene.backgroundBlurriness = .36;
     scene.environmentRotation.y = scene.backgroundRotation.y = .72;
-  }).catch(error => report('urban-dusk.hdr', error));
+  }).catch(error => report('urban-dusk.hdr', error)));
 
   function place(parent, name, { x = 0, y = 0, z = 0, yaw = 0, height, width, depth, onReady } = {}) {
     const group = new THREE.Group();
@@ -69,16 +83,17 @@ export function createAssets(renderer, scene) {
     group.position.set(x,y,z);
     group.rotation.y = yaw;
     parent.add(group);
-    void load(name).then(({ scene: original }) => {
+    void load(name).then(({ scene: original, bounds, size }) => {
       const object = original.clone();
-      const bounds = new THREE.Box3().setFromObject(object);
-      const size = bounds.getSize(new THREE.Vector3());
       const scale = height ? height / size.y : 1;
       object.scale.set(width ? width / size.x : scale, scale, depth ? depth / size.z : scale);
       const center = bounds.getCenter(new THREE.Vector3());
       object.position.set(-center.x, -bounds.min.y, -center.z).multiply(object.scale);
       group.add(object);
-      onReady?.(object);
+      if(onReady){
+        object.updateWorldMatrix(true,false);
+        onReady(object,bounds.clone().applyMatrix4(object.matrixWorld));
+      }
     }).catch(error => report(name, error));
     return group;
   }
@@ -96,10 +111,8 @@ export function createAssets(renderer, scene) {
         batch.instanceMatrix.needsUpdate=true;
       }
     }
-    void load(name).then(({scene: model}) => {
-      const bounds=new THREE.Box3().setFromObject(model);
+    void load(name).then(({scene: model, bounds, size}) => {
       const center=bounds.getCenter(new THREE.Vector3());
-      const size=bounds.getSize(new THREE.Vector3());
       const steer=new THREE.Object3D();
       const foot=new THREE.Vector3(-center.x,-bounds.min.y,-center.z);
       const offset=new THREE.Matrix4().makeTranslation(foot.x,foot.y,foot.z);
@@ -148,11 +161,13 @@ export function createAssets(renderer, scene) {
     const wrist = new THREE.Vector3();
     let poseBlend = 0;
     root.add(hands);
-    void load(name).then(({ scene: model, animations }) => {
+    void load(name).then(({ scene: model, animations, bounds, size }) => {
       rig = cloneSkeleton(model);
-      const bounds = new THREE.Box3().setFromObject(rig);
-      rig.scale.setScalar(height / (bounds.max.y - bounds.min.y));
-      // This skeleton's clips are already centered on the feet and face +Z.
+      const scale = height / size.y;
+      rig.scale.setScalar(scale);
+      const footOffset = -bounds.min.y * scale;
+      rig.userData.footOffset = footOffset;
+      rig.position.y = footOffset;
       root.add(rig);
       mixer = new THREE.AnimationMixer(rig);
       const clip = name => mixer.clipAction(THREE.AnimationClip.findByName(animations, name));
@@ -184,7 +199,7 @@ export function createAssets(renderer, scene) {
       mixer.update(dt);
       const working = mode === 'typing';
       poseBlend = dt ? THREE.MathUtils.damp(poseBlend, Number(working), 14, dt) : Number(working);
-      rig.position.y = -.40 * poseBlend;
+      rig.position.y = rig.userData.footOffset - .38 * poseBlend;
       if (poseBlend > .002) {
         for (const side of ['_L','_R']) {
           const sign = side === '_L' ? 1 : -1;
@@ -208,7 +223,10 @@ export function createAssets(renderer, scene) {
     return { hands, update };
   }
 
-  return { place, character, instance, materials: themed };
+  function ready(){
+    return Promise.allSettled([...pending.values(),...environmentAssets]);
+  }
+  return { place, character, instance, ready, materials: themed };
 }
 
 export function createPipeline(renderer, scene) {
@@ -221,6 +239,12 @@ export function createPipeline(renderer, scene) {
   composer.addPass(new SMAAPass());
   return {
     resize(width, height) { composer.setSize(width, height); },
+    prepare(camera) {
+      const previous=renderer.getRenderTarget();
+      renderer.setRenderTarget(composer.readBuffer);
+      try { return renderer.compileAsync(scene,camera); }
+      finally { renderer.setRenderTarget(previous); }
+    },
     render(camera) {
       world.camera = camera;
       composer.render();

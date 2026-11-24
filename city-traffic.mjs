@@ -1,6 +1,6 @@
 const cars = [
-  ['taxi',-42,-42],['taxi',0,-42],['sedan',-42,0],['suv',0,0],
-  ['taxi',42,42],['suv',-84,-42],['sedan',42,-42],['taxi',0,42],
+  ['taxi',-84,-84],['taxi',0,-84],['sedan',84,-84],['suv',-84,42],
+  ['taxi',0,42],['suv',84,42],['sedan',-84,126],['taxi',0,126],
 ];
 
 export function createVehicle(THREE,assets,kind) {
@@ -48,16 +48,18 @@ export function streets(THREE,scene,navigation,bounds,assets) {
         throw new Error('Traffic lane must clear the city grid');
     }
     const model=createVehicle(THREE,assets,kind);
+    model.position.y=navigation.roadHeight;
     scene.add(model);
     return {track,model,speed:7.9+(index%3)*.39,start:(index*19.1)%145};
   });
 
   const walks=[[-84,-42],[-42,-42],[0,-42],[-42,0],[0,0],[42,0],[0,42]];
+  const sidewalk=6.74;
   const walkers=walks.flatMap(([x,z],ring)=>Array.from({length:4},(_,i)=>{
     const model=new THREE.Group();
     scene.add(model);
     const rig=assets.character(model,i+ring,1.61+(i%3)*.07);
-    return {track:rectangle(x,z,42,4.82),speed:1.19+.12*((ring+i)%4),start:i*33.9+ring*6.2,model,rig};
+    return {track:rectangle(x,z,42,sidewalk),speed:1.19+.12*((ring+i)%4),start:i*33.9+ring*6.2,model,rig};
   }));
 
   let frameNumber=0;
@@ -65,13 +67,13 @@ export function streets(THREE,scene,navigation,bounds,assets) {
     const elapsed=motion?time:0;
     for(const {track,model,speed,start} of vehicles){
       along(track,(start+elapsed*speed)%(4*(42-3.44)),frame);
-      model.position.set(frame.x,-.11,frame.z);
+      model.position.set(frame.x,navigation.roadHeight,frame.z);
       model.rotation.y=frame.yaw;
       if(motion)for(const wheel of model.userData.wheels??[])wheel.rotateX(speed*dt/.35);
     }
     for(const [i,{track,model,rig,speed,start}] of walkers.entries()){
-      along(track,(start+elapsed*speed)%(4*(42-9.64)),frame);
-      model.position.set(frame.x,.15,frame.z);
+      along(track,(start+elapsed*speed)%(4*(42-2*sidewalk)),frame);
+      model.position.set(frame.x,navigation.sidewalkHeight,frame.z);
       model.rotation.y=frame.yaw;
       const near=camera.position.distanceToSquared(model.position)<10000;
       if(near||(frameNumber+i)%4===0)rig.update(motion?dt*(near?1:4):0,motion?'walk':'idle',speed);

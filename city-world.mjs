@@ -2,7 +2,7 @@ import { createAssets, createPipeline } from 'city/assets';
 
 const central = [
   { id:'hq', col:3, row:3, style:'stone', facing:1, height:140, tiers:[
-    {top:13,w:25,d:24},{top:58,w:23.8,d:22.8},{top:78,w:19.1,d:18.4},
+    {top:14.76,w:25,d:24},{top:58,w:23.8,d:22.8},{top:78,w:19.1,d:18.4},
     {top:101,w:14,d:13.2},{top:119,w:8.6,d:8.1},{top:128,w:4.5,d:4.3},{top:132,w:2.7,d:2.7},
   ]},
   { id:'moex', col:4, row:3, style:'steel', facing:1, height:68, tiers:[
@@ -167,7 +167,7 @@ function towerShell(THREE,plot,skin,cap,crown) {
       const bz=start[1]+(end[1]-start[1])*U;
       quad([ax,v,az],[bx,v,bz],[bx,V,bz],[ax,V,az],[u*width/pitch,v/3.65,U*width/pitch,V/3.65],mat);
     }
-    if(!plot.facing||low>14.8){strip(0,1,low,high);return;}
+    if(!plot.facing||low>bottom){strip(0,1,low,high);return;}
     const openings=[];
     if(cut){
       const side=(1-doorWidth/width)/2;
@@ -251,12 +251,7 @@ function buildDecor(THREE,scene,navigation,material,box,grid,assets) {
   const snow=material(0xcadae1,.91);
   const slush=material(0x8b9eaa,.88);
   const marking=material(0xc0c7b2,.86);
-  box(city,asphalt,0,-.62,0,edge*2+19,1,edge*2+19);
-  const shadowGround=new THREE.Mesh(new THREE.PlaneGeometry(116,116),new THREE.ShadowMaterial({opacity:.44,depthWrite:false}));
-  shadowGround.rotation.x=-Math.PI/2;
-  shadowGround.position.y=-.117;
-  shadowGround.receiveShadow=true;
-  city.add(shadowGround);
+  box(city,asphalt,0,-.62,0,edge*2+19,1,edge*2+19).receiveShadow=true;
   const ground=new THREE.Mesh(new THREE.PlaneGeometry(6200,6200),material(0x384e63,.9));
   ground.rotation.x=-Math.PI/2;
   ground.position.y=-1.01;
@@ -428,10 +423,14 @@ export function createCity(THREE, OrbitControls, navigation, displays, offices, 
   Object.assign(sun.shadow.camera,{left:-75,right:75,top:85,bottom:-70,near:2,far:290});
   sun.shadow.normalBias=.07;
   sun.shadow.bias=-.00026;
-  scene.add(diffuse,sun);
+  // Keep a fixed light count so entering an office does not recompile the city's materials.
+  const warmOffice=new THREE.PointLight(0xffcb98,0,13,2);
+  const fillOffice=new THREE.PointLight(0xc8e7ff,0,12,2);
+  scene.add(diffuse,sun,warmOffice,fillOffice);
   const { grid,lots }=navigation.makeGrid(THREE,cityPlan(navigation.plan.cells));
   const bounding=lots.map(plot=>plot.bounds);
   const walls=[];
+  const orbitObstacles=[];
   const places=new Map();
   const panels=[];
   const rooms=[];
@@ -535,6 +534,7 @@ export function createCity(THREE, OrbitControls, navigation, displays, offices, 
       Object.assign(plot,{skyline,index,rendered:true});
       silhouettes.push(plot);
       walls.push(plot.bounds);
+      orbitObstacles.push({box:plot.bounds,plot});
     });
   }
   const perimeter=[];
@@ -549,6 +549,11 @@ export function createCity(THREE, OrbitControls, navigation, displays, offices, 
     }
   }
   assets.instance(scene,'tower',perimeter);
+  for(const {x,z,width,height,depth,yaw=0} of perimeter){
+    const turned=Math.abs(Math.sin(yaw))>.5;
+    const dx=(turned?depth:width)/2,dz=(turned?width:depth)/2;
+    orbitObstacles.push({box:wallBounds(x-dx,0,z-dz,x+dx,height+.15,z+dz)});
+  }
   for(const plot of lots.filter(item=>item.facing)){
     const root=new THREE.Group();
     root.position.set(plot.x,0,plot.z);
@@ -568,6 +573,12 @@ export function createCity(THREE, OrbitControls, navigation, displays, offices, 
     }
     plot.door=portal(plot);
     plot.office=offices.buildOffice(THREE,plot,displays,assets);
+    let base=0;
+    for(const {w,d,top} of plot.tiers){
+      orbitObstacles.push({box:wallBounds(plot.x-w/2,base,plot.z-d/2,plot.x+w/2,top,plot.z+d/2),plot});
+      base=top;
+    }
+    if(plot.id==='hq')orbitObstacles.push({box:wallBounds(plot.x-.7,132,plot.z-.7,plot.x+.7,140,plot.z+.7),plot});
     rooms.push(plot);
     const display=displays.billboard(THREE,plot.id);
     panels.push(display);
@@ -580,13 +591,13 @@ export function createCity(THREE, OrbitControls, navigation, displays, offices, 
     if(plot.id==='moex')mount(plot,display,'south',35.1,19.8,9.9);
     if(plot.id==='dev')mount(plot,display,'east',31.4,19.2,9.6);
     if(plot.id==='grants')mount(plot,display,'east',33.4,19.2,9.6);
-    plot.work=vector(plot.x+5.93,.18,plot.z-plot.facing*3.05);
+    plot.work=vector(plot.x+1.65,.18,plot.z+plot.facing*1.25);
     plot.entry=vector(plot.x,.18,plot.door.front+plot.facing*.67);
     places.set(plot.id,plot);
     skin[plot.style].needsUpdate=true;
   }
 
-  const park={id:'lounge',x:-63,z:21,work:vector(-60,.18,27),entry:vector(-60,.18,10.7),facing:-1};
+  const park={id:'lounge',x:-63,z:21,work:vector(-59.2,.18,27),entry:vector(-59.2,.18,10.7),facing:-1};
   places.set(park.id,park);
   assets.place(scene,'tree',{x:park.x,y:.15,z:19,height:14.8});
   const placards=new Map();
@@ -604,16 +615,16 @@ export function createCity(THREE, OrbitControls, navigation, displays, offices, 
 
   function makeRoute(points) {
     const pieces=[];
-    let meters=0;
+    let elapsed=0;
     for(let i=1;i<points.length;i++){
       const from=points[i-1],to=points[i];
       const distance=from.point.distanceTo(to.point);
       if(distance<.01)continue;
-      const duration=distance/(to.drive?14:7);
-      pieces.push({from:from.point,to:to.point,drive:to.drive,duration,total:meters});
-      meters+=duration;
+      const duration=distance/(to.drive?11:3.45);
+      pieces.push({from:from.point,to:to.point,drive:to.drive,duration,total:elapsed});
+      elapsed+=duration;
     }
-    return { pieces, duration:meters };
+    return pieces;
   }
   function person(profile,index) {
     const wrapper=new THREE.Group();
@@ -625,26 +636,71 @@ export function createCity(THREE, OrbitControls, navigation, displays, offices, 
     wrapper.add(cab);
     cab.visible=false;
     wrapper.position.copy(park.work).add(vector((index%3)*1.25,0,Math.floor(index/3)*1.65));
-    return { profile,index,wrapper,body,cab,rig,place:'lounge',goal:'lounge',route:null,row:{action:'idle'} };
+    return { profile,index,wrapper,body,cab,rig,place:'lounge',goal:'lounge',route:null,row:{action:'idle'},elapsed:0,to:null };
   }
   const actors=ui.profiles.map(person);
 
-  function travel(origin,destination,drive) {
+  function positionAt(place,index) {
+    return place.work.clone().add(vector(index*.38,0,0));
+  }
+
+  function travel(origin,destination,drive){
     const points=[{point:origin.work,drive:false}];
-    const add=(x,y,z,drive=false)=>points.push({point:vector(x,y,z),drive});
-    const aRoad=origin.z+origin.facing*21;
-    const bRoad=destination.z+destination.facing*21;
-    const intersection=origin.x+Math.sign(-origin.x)*21;
-    add(origin.entry.x,.18,origin.work.z);
-    add(origin.entry.x,.18,origin.entry.z);
-    add(origin.entry.x,-.09,aRoad);
-    add(intersection,-.09,aRoad,drive);
-    add(intersection,-.09,bRoad,drive);
-    add(destination.entry.x,-.09,bRoad,drive);
-    add(destination.entry.x,.18,destination.entry.z);
-    add(destination.entry.x,.18,destination.work.z);
+    const add=(x,y,z,vehicle=false)=>points.push({point:vector(x,y,z),drive:vehicle});
+    const walk=(x,z)=>add(x,navigation.streetHeight(x,z),z);
+    const roadFrom=origin.z+origin.facing*21;
+    const roadTo=destination.z+destination.facing*21;
+    const a=origin.entry.x,b=destination.entry.x;
+    const corridor=origin.id==='lounge'||destination.id==='lounge'?-42:0;
+    const direct=roadFrom===roadTo;
+    const direction=Math.sign((direct?b:corridor)-a);
+    const turn=Math.sign(roadTo-roadFrom);
+    const laneY=navigation.roadHeight;
+
+    add(a,.18,origin.work.z);
+    add(a,.18,origin.entry.z);
+    walk(a,roadFrom-origin.facing*6.67);
+    if(drive){
+      const laneFrom=roadFrom+direction*1.75;
+      const laneTo=roadTo+(direct?direction:Math.sign(b-corridor))*1.75;
+      walk(a,laneFrom);
+      if(!direct){
+        const laneX=corridor-turn*1.75;
+        add(laneX,laneY,laneFrom,true);
+        add(laneX,laneY,laneTo,true);
+      }
+      add(b,laneY,laneTo,true);
+    }else{
+      const walkFrom=roadFrom-origin.facing*6.67;
+      const walkTo=roadTo-destination.facing*6.67;
+      const crossing=corridor+Math.sign(a-corridor)*6.67;
+      if(direct&&origin.facing!==destination.facing){
+        walk(a,walkTo);
+      }else if(!direct){
+        walk(crossing,walkFrom);
+        walk(crossing,walkTo);
+      }
+    }
+    walk(b,roadTo-destination.facing*6.67);
+    add(b,.18,destination.entry.z);
+    add(b,.18,destination.work.z);
     add(destination.work.x,.18,destination.work.z);
     return points;
+  }
+
+  function beginTravel(actor){
+    const origin=places.get(actor.place),destination=places.get(actor.goal);
+    if(origin===destination)return;
+    const drive=options.transport==='car'||options.transport==='mixed'&&actor.index%2===0;
+    const points=[{point:actor.wrapper.position.clone(),drive:false}];
+    if(origin===park&&destination!==places.get('hq')){
+      const hq=places.get('hq');
+      points.push(...travel(origin,hq,drive),...travel(hq,destination,drive));
+    }else points.push(...travel(origin,destination,drive));
+    points.push({point:positionAt(destination,actor.index),drive:false});
+    actor.route=makeRoute(points);
+    actor.elapsed=0;
+    actor.to=actor.goal;
   }
 
   const camera=new THREE.PerspectiveCamera(51,1,.2,3200);
@@ -664,6 +720,7 @@ export function createCity(THREE, OrbitControls, navigation, displays, offices, 
 
   const roomAt=position=>rooms.find(place=>position.x>place.bounds.min.x&&position.x<place.bounds.max.x&&
     position.z>place.bounds.min.z&&position.z<place.bounds.max.z);
+  const terrain=position=>navigation.streetHeight(position.x,position.z);
   function nearLift(){
     if(!walking)return null;
     const office=roomAt(walker.camera.position)?.office;
@@ -676,7 +733,7 @@ export function createCity(THREE, OrbitControls, navigation, displays, offices, 
     getObstacles:(position,feet)=>[...walls,...rooms.flatMap(p=>p.door.open<.7?[p.door.blocker]:[]),
       ...(roomAt(position)?.office.collision(position,feet)??[])],
     getRoom:roomAt,
-    getFeet:(position,feet)=>roomAt(position)?.office.walkHeights(position,feet)??.13,
+    getFeet:(position,feet)=>roomAt(position)?.office.walkHeights(position,feet)??terrain(position),
   });
   let walking=false,focus=null,follow=null,tween;
   let chosenFloor=null;
@@ -690,6 +747,8 @@ export function createCity(THREE, OrbitControls, navigation, displays, offices, 
   let relay=null;
   const projected=vector();
   const before=vector();
+  const orbitSlide=vector();
+  let cameraWalls=orbitObstacles.map(entry=>entry.box);
   const heightProbe=vector();
   const approach=new THREE.Ray();
   const clearSamples=central.flatMap(tower=>{
@@ -761,6 +820,7 @@ export function createCity(THREE, OrbitControls, navigation, displays, offices, 
   }
   function select(id,profileId) {
     focus=id;
+    cameraWalls=orbitObstacles.filter(entry=>entry.plot?.id!==id||!entry.plot?.office).map(entry=>entry.box);
     follow=actors.find(actor=>actor.profile.id===profileId);
     chosenFloor=null;
     ui.onOffice(Boolean(places.get(focus)?.office),true);
@@ -779,30 +839,13 @@ export function createCity(THREE, OrbitControls, navigation, displays, offices, 
       if(!row)continue;
       const goal=row.district;
       actor.row=row;
+      actor.goal=goal;
       if(snap){
         actor.route=null;
         actor.place=goal;
-        actor.goal=goal;
-        actor.wrapper.position.copy(places.get(goal).work).add(vector(actor.index*.51,0,0));
-      }else if(goal!==actor.goal){
-        actor.goal=goal;
-        const now=performance.now()/1000;
-        const origin=places.get(actor.place),destination=places.get(goal);
-        const drive=options.transport==='car'||options.transport==='mixed'&&actor.index%2===0;
-        let points=[{point:actor.wrapper.position.clone(),drive:false}];
-        if(actor.route){
-          const traveled=actor.route.pieces.filter(part=>part.total<now-actor.started).reverse();
-          points.push(...traveled.map(part=>({point:part.from,drive:part.drive})));
-        }else points.push({point:origin.work,drive:false});
-        if(origin!==destination){
-          if(actor.place==='lounge'&&goal!=='hq'&&goal!=='lounge'){
-            const hq=places.get('hq');
-            points.push(...travel(origin,hq,drive),...travel(hq,destination,drive));
-          }else points.push(...travel(origin,destination,drive));
-        }
-        actor.route=makeRoute(points);
-        actor.started=now;
-      }
+        actor.to=null;
+        actor.wrapper.position.copy(positionAt(places.get(goal),actor.index));
+      }else if(!actor.route)beginTravel(actor);
     }
     const now=performance.now()/1000;
     for(const plot of rooms){
@@ -817,12 +860,24 @@ export function createCity(THREE, OrbitControls, navigation, displays, offices, 
     if(isDemo&&focus==='dev'&&chosenFloor===null)showFloor('auto');
   }
 
-  function moveAlong(mesh,route,time){
-    const segment=route.pieces.find(piece=>time<piece.total+piece.duration);
+  const nextPosition=vector();
+  function moveAlong(actor,time){
+    const segment=actor.route.find(piece=>time<piece.total+piece.duration);
     if(!segment)return null;
     const phase=(time-segment.total)/segment.duration;
-    mesh.position.lerpVectors(segment.from,segment.to,Math.max(0,phase));
+    nextPosition.lerpVectors(segment.from,segment.to,Math.max(0,phase));
+    const mesh=actor.wrapper;
+    if(!segment.drive){
+      nextPosition.y=roomAt(nextPosition)? .18 : terrain(nextPosition);
+      for(const plot of rooms){
+        if(plot.door.open>=.7)continue;
+        const permitted=navigation.sweep(THREE,mesh.position,nextPosition,[plot.door.blocker],.25);
+        if(permitted.distanceToSquared(nextPosition)>.0001)return segment;
+      }
+    }
+    mesh.position.copy(nextPosition);
     mesh.rotation.y=Math.atan2(segment.to.x-segment.from.x,segment.to.z-segment.from.z);
+    actor.elapsed=time;
     return segment;
   }
 
@@ -836,7 +891,7 @@ export function createCity(THREE, OrbitControls, navigation, displays, offices, 
     layout();
   }
   let last=performance.now()/1000;
-  const readyToAdapt=last+4;
+  let readyToAdapt;
   const markerAt=vector(Infinity,Infinity,Infinity);
   let markerZoom=-1;
   let backgroundAt=vector(Infinity,Infinity,Infinity);
@@ -872,11 +927,13 @@ export function createCity(THREE, OrbitControls, navigation, displays, offices, 
     for(const actor of actors){
       let part=null;
       if(actor.route){
-        part=moveAlong(actor.wrapper,actor.route,motion?clock-actor.started:Infinity);
+        part=motion?moveAlong(actor,actor.elapsed+dt):null;
         if(!part){
-          actor.place=actor.goal;
+          actor.place=actor.to;
           actor.route=null;
-          actor.wrapper.position.copy(places.get(actor.place).work).add(vector(actor.index*.51,0,0));
+          actor.to=null;
+          actor.wrapper.position.copy(positionAt(places.get(actor.place),actor.index));
+          beginTravel(actor);
         }
       }
       const driving=Boolean(part?.drive);
@@ -886,7 +943,16 @@ export function createCity(THREE, OrbitControls, navigation, displays, offices, 
       if(actor.wrapper.visible&&!driving)actor.rig.update(motion?dt:0,part?'walk':'idle',2.3);
     }
     transit.update(clock,dt,motion,walking?walker.camera:camera);
-    const focusRoom=places.get(focus)?.office;
+    const focused=places.get(focus);
+    const focusRoom=focused?.office;
+    const litRoom=walking?roomAt(walker.camera.position):focusRoom?focused:null;
+    if(litRoom){
+      const level=walking?walker.feet:offices.floors[chosenFloor??litRoom.office.floor];
+      warmOffice.position.set(litRoom.x+3.8,level+3.74,litRoom.z-3.35*litRoom.facing);
+      fillOffice.position.set(litRoom.x-4.2,level+3.60,litRoom.z+3.05*litRoom.facing);
+    }
+    warmOffice.intensity=litRoom?16:0;
+    fillOffice.intensity=litRoom?12:0;
     const lift=nearLift();
     const nextLiftStamp=JSON.stringify(lift?.info??null);
     if(nextLiftStamp!==liftStamp){liftStamp=nextLiftStamp;ui.onLift(lift?.info??null);}
@@ -912,8 +978,13 @@ export function createCity(THREE, OrbitControls, navigation, displays, offices, 
         if(!follow&&Math.abs(camera.zoom-zoom)<.005&&orbit.target.distanceTo(destination)<.05)tween=null;
       }
       orbit.update();
-      const safe=navigation.sweep(THREE,before,camera.position,bounding,1.2);
+      const safe=navigation.sweep(THREE,before,camera.position,cameraWalls,.78);
       if(safe.distanceToSquared(camera.position)>.0001){
+        for(const axis of ['x','z','y']){
+          orbitSlide.copy(safe);
+          orbitSlide[axis]=camera.position[axis];
+          safe.copy(navigation.sweep(THREE,safe,orbitSlide,cameraWalls,.78));
+        }
         camera.position.copy(safe);
         camera.lookAt(orbit.target);
       }
@@ -970,7 +1041,14 @@ export function createCity(THREE, OrbitControls, navigation, displays, offices, 
     }
     pipeline.render(view);
   }
+  async function prepare(){
+    await assets.ready();
+    await pipeline.prepare(camera);
+    last=performance.now()/1000;
+    readyToAdapt=last+1;
+    renderer.setAnimationLoop(render);
+  }
   layout();
-  renderer.setAnimationLoop(render);
-  return { layout,select,walk,update,setOptions,showFloor,liftRequest };
+  const ready=prepare();
+  return { layout,select,walk,update,setOptions,showFloor,liftRequest,ready };
 }

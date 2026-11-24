@@ -3,7 +3,7 @@
 const telegram = window.Telegram?.WebApp;
 telegram?.ready();
 telegram?.expand();
-telegram?.disableVerticalSwipes?.();
+if (telegram?.isVersionAtLeast?.('7.7')) telegram.disableVerticalSwipes?.();
 
 const elements = {
   app: document.querySelector('#app'),
@@ -435,11 +435,17 @@ const defaults = Object.freeze({ light: 'day', transport: 'mixed', snow: true, v
 const storageKey = 'ai-hub-winter-v1';
 let townOptions = { ...defaults };
 let drag;
-let skipClick = false;
+let swipePointer;
 let musicEnabled = false;
 let score;
 let audioRevision = 0;
-const musicReady = import('city/music').then(module => { score = module.createScore(); return score; });
+musicButton.disabled = field.music.disabled = true;
+void import('city/music').then(module => {
+  score = module.createScore();
+  musicButton.disabled = field.music.disabled = false;
+}).catch(() => {
+  musicButton.title = 'Музыка недоступна';
+});
 
 try {
   const saved = JSON.parse(localStorage.getItem(storageKey));
@@ -455,12 +461,13 @@ function setFolded(folded) {
   elements.app.toggleAttribute('data-folded', folded);
   boardToggle.setAttribute('aria-expanded', String(!folded));
   document.getElementById('board-label').textContent = folded ? 'Показать панель' : 'Свернуть панель';
-  board.inert = folded;
+  board.hidden = folded;
   city?.layout();
 }
 
 boardToggle.addEventListener('pointerdown', event => {
   if (!event.isPrimary || event.button !== 0) return;
+  swipePointer = undefined;
   drag = { id: event.pointerId, start: event.clientY };
   boardToggle.setPointerCapture(event.pointerId);
 });
@@ -470,12 +477,15 @@ boardToggle.addEventListener('pointerup', event => {
   drag = undefined;
   if (Math.abs(distance) < 24) return;
   setFolded(distance > 0);
-  skipClick = true;
-  setTimeout(() => { skipClick = false; }, 350);
+  swipePointer = event.pointerId;
 });
 boardToggle.addEventListener('pointercancel', () => { drag = undefined; });
-boardToggle.addEventListener('click', () => {
-  if (skipClick) { skipClick = false; return; }
+boardToggle.addEventListener('click', event => {
+  if (event.detail && swipePointer !== undefined &&
+    (event.pointerId === undefined || event.pointerId === swipePointer)) {
+    swipePointer = undefined;
+    return;
+  }
   setFolded(!elements.app.hasAttribute('data-folded'));
 });
 document.addEventListener('keydown', event => {
@@ -519,12 +529,12 @@ async function toggleMusic(enabled) {
     refreshSettings();
     return;
   }
+  refreshSettings();
   try {
-    const player = score ?? await musicReady;
-    if (revision !== audioRevision || document.hidden) return;
-    player.setVolume(townOptions.volume / 100);
-    await player.start();
-    if (!musicEnabled || document.hidden) player.stop();
+    if (!score || document.hidden) return;
+    score.setVolume(townOptions.volume / 100);
+    await score.start();
+    if (!musicEnabled || document.hidden) score.stop();
   } catch {
     if (revision === audioRevision) musicEnabled = false;
   } finally {
@@ -566,7 +576,7 @@ Promise.all([
   import('three'), import('three/addons/controls/OrbitControls.js'),
   import('city/world'), import('city/navigation'), import('city/displays'), import('city/offices'), import('city/traffic'),
 ])
-  .then(([THREE, { OrbitControls }, world, navigation, displays, offices, traffic]) => {
+  .then(async ([THREE, { OrbitControls }, world, navigation, displays, offices, traffic]) => {
     city = world.createCity(THREE, OrbitControls, navigation, displays, offices, traffic, {
       canvas: elements.canvas, markers: elements.markers, profiles, districts, board, reducedMotion,
       movePad: document.getElementById('walk-move'),
@@ -596,12 +606,15 @@ Promise.all([
         if(!walking)liftPanel.hidden=true;
       },
     });
-    walkButton.disabled = false;
     city.update(rows, relayStatus, Boolean(liveData), displaySnapshot);
     city.setOptions(townOptions);
     if (selected) selectDistrict(selected, selectedAgent);
+    await city.ready;
+    document.getElementById('city-loading').hidden = true;
+    walkButton.disabled = false;
   })
   .catch(error => {
+    document.getElementById('city-loading').hidden = true;
     console.error('Не удалось создать город', error);
     elements.world.dataset.fallback = 'true';
     elements.canvas.hidden = true;

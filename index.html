@@ -6,27 +6,29 @@
   <meta name="theme-color" content="#0b132b">
   <meta name="description" content="Зимний офис AI Hub. Задания, маршруты и рабочие места агентов.">
   <title>Таймс-сквер · AI Hub</title>
-  <link rel="stylesheet" href="./office.css?v=0a69cc180dfd">
+  <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 48 48'%3E%3Crect width='48' height='48' rx='12' fill='%23294766'/%3E%3Cpath d='M24 8v32M10 16l28 16M10 32l28-16' stroke='%23fff6d8' stroke-width='3' stroke-linecap='round'/%3E%3C/svg%3E">
+  <link rel="stylesheet" href="./office.css?v=bd642f518578">
   <script type="importmap">
     {"imports":{"three":"https://cdn.jsdelivr.net/npm/three@0.180.0/build/three.module.js",
       "three/addons/":"https://cdn.jsdelivr.net/npm/three@0.180.0/examples/jsm/",
-      "city/assets":"./city-assets.mjs?v=99700ee3fdae",
-      "city/world":"./city-world.mjs?v=cd1fdb06e64b",
-      "city/navigation":"./city-navigation.mjs?v=fd7d663d24c8",
+      "city/assets":"./city-assets.mjs?v=c06c3ac31b26",
+      "city/world":"./city-world.mjs?v=d6261a38dafe",
+      "city/navigation":"./city-navigation.mjs?v=6148ea26c234",
       "city/displays":"./city-displays.mjs?v=d87a29eac276",
-      "city/offices":"./city-offices.mjs?v=cadf731e0ef1",
-      "city/traffic":"./city-traffic.mjs?v=486d93c6d184",
+      "city/offices":"./city-offices.mjs?v=b4f9964a0522",
+      "city/traffic":"./city-traffic.mjs?v=d84047f33bb2",
       "city/music":"./city-music.mjs?v=16ecba2176dc"}}
   </script>
   <script defer src="https://telegram.org/js/telegram-web-app.js"></script>
   <script defer src="./config.js"></script>
-  <script defer src="./office.js?v=6792c3ddbc63"></script>
+  <script defer src="./office.js?v=a48975c19030"></script>
 </head>
 <body>
   <main class="app" id="app">
     <div id="world" class="world">
       <canvas id="city" tabindex="0" aria-label="Зимний 3D-город. Перетаскивайте для поворота, используйте колёсико или щипок для зума."></canvas>
       <div id="markers" class="markers" aria-label="Здания города"></div>
+      <p id="city-loading" class="city-loading glass" role="status">Загружается 3D-город…</p>
     </div>
 
     <header class="topbar chrome">
@@ -60,14 +62,16 @@
       <span class="walk-target" aria-hidden="true"></span>
     </div>
 
-    <aside id="district" class="district glass chrome" aria-label="Выбранное место" hidden>
-      <div><p id="district-mode" class="district-mode">Интерьер</p><h2 id="district-name"></h2><p id="district-description"></p></div>
-      <button id="overview" class="outline-button" type="button">К городу</button>
-    </aside>
+    <div class="district-controls chrome">
+      <aside id="district" class="district glass" aria-label="Выбранное место" hidden>
+        <div><p id="district-mode" class="district-mode">Интерьер</p><h2 id="district-name"></h2><p id="district-description"></p></div>
+        <button id="overview" class="outline-button" type="button">К городу</button>
+      </aside>
 
-    <div id="floor-picker" class="floor-picker glass" hidden>
-      <label for="office-floor">Этаж офиса</label>
-      <select id="office-floor"><option value="auto">Рабочая сценка</option><option value="0">1 · Лобби</option><option value="1">2 · Офис</option><option value="2">3 · Архив</option></select>
+      <div id="floor-picker" class="floor-picker glass" hidden>
+        <label for="office-floor">Этаж офиса</label>
+        <select id="office-floor"><option value="auto">Рабочая сценка</option><option value="0">1 · Лобби</option><option value="1">2 · Офис</option><option value="2">3 · Архив</option></select>
+      </div>
     </div>
     <section class="dock" id="dock" aria-label="Управление городом">
       <button id="board-toggle" class="board-toggle glass" type="button" aria-expanded="true" aria-controls="board">

@@ -29,6 +29,8 @@ button:focus-visible, select:focus-visible, input:focus-visible, textarea:focus-
 .app { position: relative; isolation: isolate; }
 .world { position: absolute; inset: 0; overflow: hidden; background: #0b132b; }
 #city { display: block; touch-action: none; cursor: grab; }
+.city-loading { position: absolute; top: 45%; left: 50%; transform: translate(-50%,-50%); padding: 9px 13px;
+  border-radius: 18px; font-size: .84rem; text-align: center; pointer-events: none; }
 #city:active { cursor: grabbing; }
 .markers { position: absolute; inset: 0; pointer-events: none; z-index: 1; }
 .marker {
@@ -53,7 +55,10 @@ h1 { font-size: clamp(1.35rem, 4.5vw, 2.25rem); line-height: 1.02; letter-spacin
 .connection[data-mode="connecting"] { color: #b8dcff; }
 .icon { width: 42px; height: 42px; padding: 0; display: grid; place-items: center; border: 1px solid var(--line); border-radius: 10px; background: var(--white); font-size: 1.24rem; line-height: 1; }
 .icon[aria-pressed="true"] { background: #285648; color: #fff; border-color: #285648; }
-.district { position: absolute; top: calc(env(safe-area-inset-top) + 78px); right: var(--side); z-index: 3; width: min(310px, calc(100% - 28px)); padding: 12px 13px; border-radius: 11px; display: flex; gap: 8px; justify-content: space-between; align-items: center; }
+.district-controls { position: absolute; top: calc(env(safe-area-inset-top) + 78px); right: var(--side); z-index: 4;
+  width: min(310px, calc(100% - 2 * var(--side))); display: grid; justify-items: end; gap: 6px; pointer-events: none; }
+.district-controls > * { pointer-events: auto; }
+.district { width: 100%; padding: 12px 13px; border-radius: 11px; display: flex; gap: 8px; justify-content: space-between; align-items: center; }
 .district h2 { font-size: 1.04rem; line-height: 1.12; margin-bottom: 3px; }
 .district p { color: var(--muted); font-size: .77rem; }
 .district .district-mode { color: #ffc984; font-size: .71rem; font-weight: 700; margin-bottom: 4px; }
@@ -115,7 +120,6 @@ input { accent-color: var(--pine); }
   .mark { width: 34px; height: 34px; font-size: 1.27rem; }
   .top-controls { gap: 4px; }
   .top-controls .icon { width: 37px; height: 40px; }
-  .district { top: calc(env(safe-area-inset-top) + 57px); }
   .board { padding: 5px 8px 8px; }
   .board-scroll { max-height: 25dvh; }
   .dashboard-header p { font-size: .73rem; }
@@ -126,7 +130,7 @@ input { accent-color: var(--pine); }
 }
 @media (max-height: 530px) and (orientation: landscape) {
   .board-scroll { max-height: 23dvh; }
-  .district { width: 260px; }
+  .district-controls { width: min(260px, calc(100% - 2 * var(--side))); }
 }
 
 .camera-switch { position: absolute; z-index: 5; top: calc(env(safe-area-inset-top) + 18px); left: 50%;
@@ -154,14 +158,13 @@ input { accent-color: var(--pine); }
 @media (max-width: 620px) {
   .camera-switch { top: calc(env(safe-area-inset-top) + 54px); }
   .app[data-walking] .camera-switch { top: calc(env(safe-area-inset-top) + 13px); }
-  .district { top: calc(env(safe-area-inset-top) + 103px); }
+  .district-controls { top: calc(env(safe-area-inset-top) + 103px); }
 }
 
-.floor-picker { position:absolute; top:calc(env(safe-area-inset-top) + 160px); right:var(--side); z-index:4;
+.floor-picker {
   border-radius:9px; padding:7px 9px; display:flex; align-items:center; gap:7px; font-size:.8rem; }
 .floor-picker select,.dashboard-controls select { color:#eef5ff; background:#253d5a; border:1px solid var(--line);
   border-radius:7px; padding:6px; }
-.app[data-folded] .floor-picker,.app[data-walking] .floor-picker { display:none; }
 .lift-panel { pointer-events:auto; position:absolute; bottom:calc(env(safe-area-inset-bottom) + 58px);
   left:50%; transform:translateX(-50%); min-height:41px; padding:6px 9px; display:flex; gap:6px; align-items:center;
   border-radius:10px; white-space:nowrap; }
@@ -170,6 +173,5 @@ input { accent-color: var(--pine); }
 .lift-panel button:disabled { opacity:.45; }
 @media (pointer:coarse) { .lift-panel { bottom:calc(env(safe-area-inset-bottom) + 129px); } }
 @media (max-width:620px) {
-  .floor-picker { top:calc(env(safe-area-inset-top) + 189px); }
   .dashboard-controls { max-width:72%; } .dashboard-controls select { max-width:88px; font-size:.72rem; }
 }

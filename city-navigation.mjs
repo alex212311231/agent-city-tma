@@ -25,27 +25,54 @@ export function makeGrid(THREE, blocks) {
   return { grid, lots };
 }
 
-// Swept AABB prevents a long frame or rapid orbit from stepping across a wall.
+export const roadHeight = -.12;
+export const sidewalkHeight = .1325;
+
+export function streetHeight(x,z) {
+  const distance = value => Math.abs(value - Math.round(value / plan.step) * plan.step);
+  const curb = plan.street / 2 + .19;
+  const inset = Math.min(distance(x), distance(z)) - curb;
+  const t = Math.max(0, Math.min(1, inset / .27));
+  return roadHeight + (sidewalkHeight - roadHeight) * t;
+}
+
+const axes = ['x','y','z'];
+
+// Sweep an object with the supplied half extents. A position on a contact plane
+// can slide or move away even when rounding leaves it slightly inside the plane.
 export function sweep(THREE, from, to, obstacles, padding) {
+  const extent = typeof padding === 'number' ? {x:padding,y:padding,z:padding} : padding;
+  const delta = {x:to.x-from.x,y:to.y-from.y,z:to.z-from.z};
   let earliest = 1;
   for (const box of obstacles) {
-    let enter = 0;
-    let leave = earliest;
-    for (const axis of ['x','y','z']) {
-      const low = box.min[axis] - padding;
-      const high = box.max[axis] + padding;
-      const distance = to[axis] - from[axis];
+    let enter = 0, leave = earliest, interior = true;
+    let exitDistance = Infinity, escapes = false;
+    for (const axis of axes) {
+      const low = box.min[axis] - extent[axis];
+      const high = box.max[axis] + extent[axis];
+      const here = from[axis];
+      const distance = delta[axis];
+      const fromLow = here - low, fromHigh = high - here;
+      interior &&= fromLow >= 0 && fromHigh >= 0;
+      const nearest = Math.min(fromLow, fromHigh);
+      const outward = distance === 0 || (distance < 0 ? fromLow <= fromHigh : fromHigh <= fromLow);
+      if (nearest < exitDistance) {
+        exitDistance = nearest;
+        escapes = outward;
+      } else if (nearest === exitDistance) {
+        escapes ||= outward;
+      }
       if (Math.abs(distance) < 1e-8) {
-        if (from[axis] < low || from[axis] > high) { enter = 2; break; }
+        if (here <= low || here >= high) { enter = 2; break; }
       } else {
-        const first = (low - from[axis]) / distance;
-        const second = (high - from[axis]) / distance;
-        enter = Math.max(enter, Math.min(first,second));
-        leave = Math.min(leave, Math.max(first,second));
+        const first = (low - here) / distance;
+        const second = (high - here) / distance;
+        enter = Math.max(enter, Math.min(first, second));
+        leave = Math.min(leave, Math.max(first, second));
       }
       if (enter > leave) break;
     }
-    if (enter <= leave) earliest = Math.max(0, enter - 0.0001);
+    if (enter <= leave && !(interior && escapes)) earliest = Math.max(0, enter - .0001);
   }
   return new THREE.Vector3().lerpVectors(from,to,earliest);
 }
@@ -84,8 +111,8 @@ function controlPad(element) {
 }
 
 export function walkingCamera(THREE, { canvas, movePad, lookPad, initial, label, getObstacles, getRoom, getFeet }) {
-  const camera = new THREE.PerspectiveCamera(69, 1, .10, 1000);
-  let feet=.13;
+  const camera = new THREE.PerspectiveCamera(69, 1, .16, 1000);
+  let feet=streetHeight(initial.x,initial.z);
   camera.position.set(initial.x, feet+1.75, initial.z);
   const move = controlPad(movePad);
   const look = controlPad(lookPad);
@@ -98,6 +125,8 @@ export function walkingCamera(THREE, { canvas, movePad, lookPad, initial, label,
   let oldLabel = '';
   const vector = new THREE.Vector3();
   const candidate = new THREE.Vector3();
+  const body = new THREE.Vector3();
+  const padding = {x:.32,y:.83,z:.32};
 
   function reset() {
     keys.clear();
@@ -142,7 +171,7 @@ export function walkingCamera(THREE, { canvas, movePad, lookPad, initial, label,
     const strafe = Number(keys.has('KeyD')) - Number(keys.has('KeyA')) + move.state.x;
     const length = Math.max(1, Math.hypot(thrust,strafe));
     const running = keys.has('ShiftLeft') || keys.has('ShiftRight');
-    const speed = running ? 12.8 : 7.4;
+    const speed = running ? 6.2 : 3.25;
     const step = Math.min(.18,delta) * speed / length;
     vector.set(-thrust*Math.sin(yaw) + strafe*Math.cos(yaw), 0, -thrust*Math.cos(yaw) - strafe*Math.sin(yaw)).multiplyScalar(step);
     const pos = camera.position;
@@ -151,12 +180,16 @@ export function walkingCamera(THREE, { canvas, movePad, lookPad, initial, label,
     if (vector.lengthSq() > 0) {
       const obstacles = getObstacles(pos,feet);
       const limit = edge - 3;
-      candidate.copy(pos);
-      candidate.x = Math.max(-limit, Math.min(limit, pos.x + vector.x));
-      pos.copy(sweep(THREE,pos,candidate,obstacles,.34));
-      candidate.copy(pos);
-      candidate.z = Math.max(-limit, Math.min(limit, pos.z + vector.z));
-      pos.copy(sweep(THREE,pos,candidate,obstacles,.34));
+      body.set(pos.x,feet+.92,pos.z);
+      for (const axis of ['x','z']) {
+        candidate.copy(body);
+        candidate[axis] = Math.max(-limit, Math.min(limit, body[axis] + vector[axis]));
+        body.copy(sweep(THREE,body,candidate,obstacles,padding));
+      }
+      pos.x=body.x;
+      pos.z=body.z;
+      feet=getFeet(pos,feet);
+      pos.y=feet+1.75;
     }
     const room = getRoom(camera.position);
     const name = room ? room.label : 'Таймс-сквер';
