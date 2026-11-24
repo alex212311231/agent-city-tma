@@ -13,16 +13,30 @@ import { OutputPass } from 'three/addons/postprocessing/OutputPass.js';
 const path = name => new URL('public/assets/' + name, import.meta.url).href;
 const figures = ['walker', 'hiker', 'regular'];
 
+async function loadAsset(name, read){
+  const url=new URL(path(name));
+  try {
+    return await read(url.href);
+  } catch(error) {
+    const status=error.response?.status;
+    const temporary=status===408||status===429||status>=500||error instanceof TypeError||error instanceof Event;
+    if(!temporary)throw error;
+    await new Promise(resolve=>setTimeout(resolve,250));
+    url.searchParams.set('retry','1');
+    return read(url.href);
+  }
+}
+
 export function createAssets(renderer, scene) {
   const basis = new KTX2Loader().setTranscoderPath(path('')).setWorkerLimit(2).detectSupport(renderer);
   const models = new GLTFLoader().setKTX2Loader(basis).setMeshoptDecoder(MeshoptDecoder);
-  const textures = new THREE.TextureLoader();
+  const images = new THREE.ImageLoader();
   const pending = new Map();
   const environmentAssets=[];
   const report = (name, error) => console.error('Не удалось загрузить ресурс города ' + name, error);
   function load(name) {
     if (!pending.has(name)) {
-      const resource = models.loadAsync(path(name + '.glb')).then(model => {
+      const resource = loadAsset(name+'.glb',url=>models.loadAsync(url)).then(model => {
         const bundledLights=[];
         model.scene.traverse(node=>{if(node.isLight)bundledLights.push(node);});
         for(const light of bundledLights)light.removeFromParent();
@@ -39,12 +53,19 @@ export function createAssets(renderer, scene) {
   }
 
   function texture(name, repeat, colorSpace = THREE.NoColorSpace) {
-    let map;
-    environmentAssets.push(new Promise(resolve=>{
-      map=textures.load(path(name),resolve,undefined,error=>{
-        report(name,error);
-        resolve();
-      });
+    const map=new THREE.Texture();
+    environmentAssets.push(loadAsset(name,url=>images.loadAsync(url)).then(image=>{
+      map.image=image;
+      map.needsUpdate=true;
+    }).catch(()=>{
+      const pixel=document.createElement('canvas');
+      pixel.width=pixel.height=1;
+      const ctx=pixel.getContext('2d');
+      ctx.fillStyle=name==='asphalt-nor_gl.jpg'?'#8080ff':name==='asphalt-rough.jpg'?'#ccc':'#fff';
+      ctx.fillRect(0,0,1,1);
+      map.image=pixel;
+      map.needsUpdate=true;
+      console.warn('Текстура города заменена однотонным материалом: '+name);
     }));
     map.colorSpace = colorSpace;
     map.wrapS = map.wrapT = THREE.RepeatWrapping;
@@ -69,13 +90,14 @@ export function createAssets(renderer, scene) {
     }),
   };
 
-  environmentAssets.push(new HDRLoader().loadAsync(path('urban-dusk.hdr')).then(hdr => {
+  const hdrLoader=new HDRLoader();
+  environmentAssets.push(loadAsset('urban-dusk.hdr',url=>hdrLoader.loadAsync(url)).then(hdr => {
     hdr.mapping = THREE.EquirectangularReflectionMapping;
     scene.environment = hdr;
     scene.background = hdr;
     scene.backgroundBlurriness = .36;
     scene.environmentRotation.y = scene.backgroundRotation.y = .72;
-  }).catch(error => report('urban-dusk.hdr', error)));
+  }).catch(()=>console.warn('Город использует резервный свет и фон. HDRI недоступна.')));
 
   function place(parent, name, { x = 0, y = 0, z = 0, yaw = 0, height, width, depth, onReady } = {}) {
     const group = new THREE.Group();
