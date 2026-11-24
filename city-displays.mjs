@@ -1,163 +1,201 @@
-const mono = '"Consolas","Courier New",monospace';
-const colors = { mint: '#a7f5c2', blue: '#88bcf7', peach: '#f8be91', gold: '#f7d135', pale: '#e5edf9' };
-
-function surface(THREE, width, height) {
-  const canvas = document.createElement('canvas');
-  canvas.width = width;
-  canvas.height = height;
-  const context = canvas.getContext('2d', { alpha: false });
-  const texture = new THREE.CanvasTexture(canvas);
+function screen(THREE,w,h) {
+  const element = document.createElement('canvas');
+  element.width = w;
+  element.height = h;
+  const ctx = element.getContext('2d',{alpha:false});
+  const texture = new THREE.CanvasTexture(element);
   texture.colorSpace = THREE.SRGBColorSpace;
   texture.anisotropy = 4;
-  const material = new THREE.MeshBasicMaterial({ map: texture, toneMapped: false, fog: true });
-  return { context, texture, material };
+  const material = new THREE.MeshBasicMaterial({map:texture,toneMapped:false,fog:false});
+  return { ctx, texture, material };
 }
 
-const syntax = /\/\/.*|#.*|'[^']*'|"[^"]*"|\b(?:const|let|def|return|function|if|else|import|from|async|await|export|class|new|throw|for|in|except|try|SELECT|FROM|const|await|assert|test)\b|\b\d+(?:\.\d+)?\b/gu;
-function codeLine(ctx, line, x, y, max) {
-  let cursor = 0;
-  let width = 0;
-  for (const match of line.matchAll(syntax)) {
-    ctx.fillStyle = colors.pale;
-    const text = line.slice(cursor, match.index);
-    ctx.fillText(text, x + width, y);
-    width += ctx.measureText(text).width;
-    if (width > max) return;
-    const token = match[0];
-    ctx.fillStyle = token.startsWith('#') || token.startsWith('//') ? '#7f9b90' :
-      /^['"]/.test(token) ? colors.peach : /^\d/.test(token) ? colors.gold : colors.blue;
-    ctx.fillText(token, x + width, y);
-    width += ctx.measureText(token).width;
-    cursor = match.index + token.length;
+const schemes = {
+  hq: {a:'#052c52', b:'#401190', accent:'#fcc862', white:'#fff3bd'},
+  moex: {a:'#0b1243', b:'#0b5faf', accent:'#5ae4ff', white:'#dcf9ff'},
+  grants: {a:'#4d064b', b:'#f21778', accent:'#ffbbd0', white:'#fff2f9'},
+  dev: {a:'#032c36', b:'#006966', accent:'#72ffe0', white:'#d8fff8'},
+};
+const font = '"Segoe UI",system-ui,sans-serif';
+const mono = 'Consolas,monospace';
+const format = new Intl.NumberFormat('ru-RU',{maximumFractionDigits:2});
+
+export function billboard(THREE,id) {
+  const {ctx,texture,material} = screen(THREE,960,540);
+  const {a,b,accent,white} = schemes[id];
+  const background = document.createElement('canvas');
+  background.width=960;
+  background.height=540;
+  const art=background.getContext('2d');
+  const gradient=art.createLinearGradient(0,500,935,0);
+  gradient.addColorStop(0,a);
+  gradient.addColorStop(1,b);
+  art.fillStyle=gradient;
+  art.fillRect(0,0,960,540);
+  art.fillStyle='#ffffff11';
+  for (let x=-395;x<1300;x+=90) {
+    art.beginPath();
+    art.moveTo(x,540);
+    art.lineTo(x+378,0);
+    art.lineTo(x+406,0);
+    art.lineTo(x+28,540);
+    art.fill();
   }
-  ctx.fillStyle = colors.pale;
-  ctx.fillText(line.slice(cursor), x + width, y);
+  art.fillStyle='#00000026';
+  for (let y=0;y<540;y+=5) art.fillRect(0,y,960,1);
+  art.strokeStyle=accent;
+  art.lineWidth=4;
+  art.strokeRect(13,13,934,514);
+  let last=-Infinity;
+  let prior;
+
+  function animate(time,state,reduced) {
+    if (state===prior && (reduced || time-last<.115)) return;
+    prior=state;
+    last=time;
+    ctx.drawImage(background,0,0);
+    const market=state.market;
+    const quotes=market?.quotes??[];
+    const ticker=quotes.length ? quotes.map(q=>q.symbol+' '+format.format(q.price)+' ₽').join('   /   ') :
+      'AI HUB   /   WINTER IN MANHATTAN';
+    ctx.fillStyle=accent;
+    ctx.font='700 30px '+font;
+    ctx.fillText({hq:'42ND ST  /  BROADWAY',moex:'MARKET DATA  /  MOEX',grants:'GRANT RADAR  /  LIVE',dev:'AI HUB  /  LIVE OPERATIONS'}[id],41,67);
+    ctx.fillStyle=white;
+    if (id==='hq') {
+      ctx.font='900 130px '+font;
+      ctx.fillText('TIMES',35,188);
+      ctx.fillText('SQUARE',31,315);
+      ctx.fillStyle=accent;
+      ctx.font='750 42px '+font;
+      ctx.fillText('С НОВЫМ ГОДОМ, НЬЮ-ЙОРК!',43,408,862);
+      for (let i=0;i<30;i++) {
+        const x=(i*37+40)%305+620;
+        const y=81+(i*77)%282;
+        const radius=2+(i%5);
+        ctx.globalAlpha=.55+.45*Math.sin(i*3.1+time*1.8)**2;
+        ctx.beginPath();
+        ctx.arc(x,y,radius,0,Math.PI*2);
+        ctx.fill();
+      }
+      ctx.globalAlpha=1;
+    } else if (id==='moex') {
+      ctx.font='900 92px '+font;
+      ctx.fillText('MOEX',34,174);
+      ctx.fillStyle=accent;
+      ctx.font='500 24px '+mono;
+      ctx.fillText(market?.source==='iss' ? 'ISS / ДАННЫЕ С ЗАДЕРЖКОЙ' :
+        market ? 'ЗАКРЫТИЕ / '+(quotes[0]?.stamp??'').slice(0,10) : 'ОЖИДАЕМ КОТИРОВКИ',44,218);
+      ctx.fillStyle=white;
+      ctx.font='700 36px '+mono;
+      quotes.slice(0,3).forEach((quote,index)=>{
+        const y=289+index*58;
+        ctx.fillText(quote.symbol,45,y);
+        ctx.fillText(format.format(quote.price)+' ₽',230,y);
+      });
+      ctx.strokeStyle=accent;
+      ctx.lineWidth=6;
+      ctx.beginPath();
+      for (let i=0;i<=31;i++) {
+        const x=480+i*14;
+        const y=355-i*4.8+Math.sin(i*.72+time*.7)*23+Math.sin(i*3.4)*10;
+        if(i===0)ctx.moveTo(x,y);else ctx.lineTo(x,y);
+      }
+      ctx.stroke();
+      ctx.fillStyle='#ffffff8c';
+      ctx.font='500 19px '+mono;
+      ctx.fillText('ГРАФИКА ТАБЛО',691,430);
+    } else if (id==='grants') {
+      ctx.font='900 101px '+font;
+      ctx.fillText('RADAR',34,179);
+      ctx.strokeStyle=accent;
+      ctx.lineWidth=3;
+      for(let i=1;i<5;i++){
+        ctx.beginPath();
+        ctx.arc(765,254,i*35,0,Math.PI*2);
+        ctx.stroke();
+      }
+      const phase=(time*.87)% (Math.PI*2);
+      ctx.fillStyle='#ffbacb42';
+      ctx.beginPath();
+      ctx.moveTo(765,254);
+      ctx.arc(765,254,139,phase-.62,phase);
+      ctx.closePath();
+      ctx.fill();
+      ctx.fillStyle=white;
+      ctx.font='700 40px '+font;
+      ctx.fillText(state.jobs?.grants?.detail || 'Ожидает обновления',44,269,535);
+      ctx.font='500 25px '+mono;
+      const updated=state.jobs?.grants?.updatedAt;
+      ctx.fillText(updated ? new Date(updated).toLocaleString('ru-RU') : 'ГРАНТЫ · AI HUB',45,330,530);
+    } else {
+      ctx.font='900 96px '+font;
+      ctx.fillText('LIVE OPS',34,177);
+      const roles=Object.entries(state.agents??{});
+      const active=roles.filter(([,role])=>role.action!=='idle').length;
+      ctx.fillStyle=accent;
+      ctx.font='700 40px '+mono;
+      ctx.fillText('В РАБОТЕ   '+active+' / '+roles.length,43,244);
+      roles.slice(0,5).forEach(([role,activity],index)=>{
+        const x=43+index*177;
+        ctx.fillStyle=activity.action==='idle'?'#546c7a':accent;
+        ctx.fillRect(x,304,135,17);
+        ctx.font='700 22px '+mono;
+        ctx.fillText(role.toUpperCase(),x,366,140);
+      });
+    }
+    ctx.fillStyle='#041128';
+    ctx.fillRect(15,458,929,66);
+    ctx.save();
+    ctx.beginPath();
+    ctx.rect(26,460,906,62);
+    ctx.clip();
+    ctx.fillStyle=accent;
+    ctx.font='700 29px '+mono;
+    const line=ticker+'     +++     ';
+    const step=ctx.measureText(line).width;
+    const scroll=reduced?0:(time*86)%step;
+    for(let x=31-scroll;x<949;x+=step)ctx.fillText(line,x,504);
+    ctx.restore();
+    texture.needsUpdate=true;
+  }
+  animate(0,{},false);
+  return { material,animate };
 }
 
 export function monitor(THREE) {
-  const { context: ctx, texture, material } = surface(THREE, 1024, 576);
+  const {ctx,texture,material}=screen(THREE,950,530);
+  const tokens=/(\/\/.*|#.*|'[^']*'|"[^"]*"|\b(?:export|import|const|let|class|function|return|async|await|def|for|from|try|new|assert)\b|\b\d+(?:\.\d+)?\b)/gu;
   let previous;
-  function show(role, activity = '', snippet = '', log = '') {
-    const key = [role, activity, snippet, log].join('\u001e');
-    if (previous === key) return;
-    previous = key;
-    ctx.fillStyle = '#102229';
-    ctx.fillRect(0, 0, 1024, 576);
-    ctx.fillStyle = '#20434c';
-    ctx.fillRect(0, 0, 1024, 81);
-    ctx.font = '700 36px ' + mono;
-    ctx.fillStyle = colors.mint;
-    ctx.fillText(role || 'AI HUB', 28, 53, 260);
-    ctx.fillStyle = '#f2faf3';
-    ctx.font = '500 28px system-ui';
-    ctx.fillText(activity || 'Монитор агента', 326, 52, 662);
-    if (!snippet && !log) {
-      ctx.font = '33px system-ui';
-      ctx.fillStyle = '#9aafa9';
-      ctx.fillText('Ожидает код или результаты проверок', 48, 165, 920);
-      texture.needsUpdate = true;
-      return;
-    }
-    const code = snippet ? snippet.split('\n').slice(0, log ? 7 : 11) : [];
-    const lines = [...code.map(line => [line, false]), ...log.split('\n').filter(Boolean).slice(-(11 - code.length)).map(line => [line,true])];
-    for (const [index, [line, isLog]] of lines.entries()) {
-      const y = 122 + 40 * index;
-      const diff = snippet.startsWith('@@') && !isLog;
-      if (diff && /^[+-]/.test(line)) {
-        ctx.fillStyle = line.startsWith('+') ? '#214539' : '#472e31';
-        ctx.fillRect(0, y - 31, 1024, 39);
+  function show(title='',entry={}) {
+    const code=entry?.code_snippet??'';
+    const log=entry?.current_log??'';
+    const signature=[title,code,log].join('\u001e');
+    if(previous===signature)return;
+    previous=signature;
+    ctx.fillStyle='#101c2a';
+    ctx.fillRect(0,0,950,530);
+    ctx.fillStyle='#1b3447';
+    ctx.fillRect(0,0,950,66);
+    ctx.fillStyle='#9efbe1';
+    ctx.font='700 30px '+mono;
+    ctx.fillText(title||'AI HUB',29,44,892);
+    const rows=[...code.split('\n').filter(Boolean).slice(0,log?7:11),
+      ...log.split('\n').filter(Boolean).slice(-4)].slice(0,11);
+    if(!rows.length)rows.push('Ожидает код или результаты проверки');
+    for(const [i,line] of rows.entries()){
+      ctx.font='25px '+mono;
+      ctx.fillStyle='#7094a7';
+      ctx.fillText(String(i+1),25,105+i*36);
+      let x=83;
+      for(const [n,part] of line.split(tokens).entries()){
+        ctx.fillStyle=n%2?(part.startsWith('//')?'#82ad9a':/^['"]/.test(part)?'#ffd39d':'#98bbff'):'#e6edf7';
+        ctx.fillText(part,x,105+i*36);
+        x+=ctx.measureText(part).width;
       }
-      ctx.font = '25px ' + mono;
-      ctx.fillStyle = '#86aca9';
-      ctx.fillText(isLog ? '›' : String(index + 1).padStart(2, '0'), 25, y);
-      ctx.font = '27px ' + mono;
-      ctx.save();
-      ctx.beginPath();
-      ctx.rect(82, y - 33, 924, 39);
-      ctx.clip();
-      codeLine(ctx, line, 84, y, 922);
-      ctx.restore();
     }
-    texture.needsUpdate = true;
+    texture.needsUpdate=true;
   }
   show();
-  return { material, show };
-}
-
-const formatter = new Intl.NumberFormat('ru-RU', { maximumFractionDigits: 2 });
-
-export function billboard(THREE, section) {
-  const { context: ctx, texture, material } = surface(THREE, 1024, 512);
-  let last;
-  function show(state = {}) {
-    const { market, jobs, agents } = state;
-    const key = JSON.stringify([market, jobs?.grants, agents && Object.values(agents).map(row => row.action)]);
-    if (key === last) return;
-    last = key;
-    const gradient = ctx.createLinearGradient(0, 0, 1024, 512);
-    gradient.addColorStop(0, section === 'holiday' ? '#0e4b48' : '#111d3c');
-    gradient.addColorStop(1, section === 'grants' ? '#2e1955' : '#0d1a36');
-    ctx.fillStyle = gradient;
-    ctx.fillRect(0, 0, 1024, 512);
-    ctx.strokeStyle = '#8ac3ea';
-    ctx.lineWidth = 5;
-    ctx.strokeRect(12, 12, 1000, 488);
-    if (section === 'market') {
-      ctx.fillStyle = '#e6f1fa';
-      ctx.font = 'bold 55px system-ui';
-      ctx.fillText('MOEX', 50, 90);
-      ctx.fillStyle = '#9bc1d1';
-      ctx.font = 'bold 31px system-ui';
-      ctx.fillText(market?.source === 'iss' ? 'ISS · данные с задержкой' : market ? 'Последнее закрытие · ₽' : 'Ожидаем котировки', 288, 86, 670);
-      for (const [i, quote] of (market?.quotes ?? []).slice(0,3).entries()) {
-        const y = 179 + i * 103;
-        ctx.fillStyle = '#253859';
-        ctx.fillRect(47, y - 57, 930, 80);
-        ctx.fillStyle = colors.mint;
-        ctx.font = 'bold 52px ' + mono;
-        ctx.fillText(quote.symbol, 72, y);
-        ctx.fillStyle = '#fbf1c8';
-        ctx.fillText(formatter.format(quote.price), 355, y);
-        ctx.fillStyle = '#b0c3d9';
-        ctx.font = '29px ' + mono;
-        const stamp = quote.stamp ?? '';
-        ctx.fillText(stamp.slice(0,16), 671, y - 4, 270);
-      }
-    } else if (section === 'grants') {
-      ctx.fillStyle = '#fff0bd';
-      ctx.font = 'bold 62px system-ui';
-      ctx.fillText('РАДАР ГРАНТОВ', 52, 104, 918);
-      ctx.fillStyle = '#d9dfed';
-      ctx.font = 'bold 42px system-ui';
-      const job = jobs?.grants;
-      ctx.fillText(job?.detail || 'Ожидает данных', 55, 213, 910);
-      ctx.font = '32px ' + mono;
-      ctx.fillText(job?.updatedAt ? 'Обновлено · ' + new Date(job.updatedAt).toLocaleString('ru-RU') : 'AI HUB', 55, 306, 910);
-      const active = agents ? Object.values(agents).filter(row => row.action !== 'idle').length : 0;
-      ctx.fillStyle = '#6ce9d2';
-      ctx.fillRect(57, 395, 160 + active * 145, 13);
-      ctx.font = '29px system-ui';
-      ctx.fillText('Активных агентов · ' + active, 57, 458);
-    } else {
-      for (let i = 0; i < 68; i++) {
-        ctx.fillStyle = i % 3 ? '#d3e7ff' : '#f6d596';
-        ctx.fillRect(24 + i * 61 % 976, 24 + i * 67 % 455, 3 + i % 4, 3 + i % 5);
-      }
-      ctx.fillStyle = '#fff3c1';
-      ctx.textAlign = 'center';
-      ctx.font = 'bold 60px system-ui';
-      ctx.fillText('С НОВЫМ ГОДОМ!', 512, 206);
-      ctx.fillStyle = '#f1f6ee';
-      ctx.font = 'bold 44px system-ui';
-      ctx.fillText('ИЗ ЗИМНЕГО НЬЮ-ЙОРКА', 512, 310, 925);
-      ctx.textAlign = 'start';
-    }
-    for (let y = 0; y < 512; y += 5) {
-      ctx.fillStyle = '#040b1c36';
-      ctx.fillRect(0, y, 1024, 1);
-    }
-    texture.needsUpdate = true;
-  }
-  show();
-  return { material, show };
+  return { material,show };
 }
