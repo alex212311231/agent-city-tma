@@ -126,6 +126,7 @@ function skins(THREE) {
       map:asTexture(source),emissiveMap:asTexture(emission),emissive:0xffffff,
       emissiveIntensity:name==='crown'?1.12:.27,roughness:.71,metalness:name==='steel'?.16:.05,
     });
+    material.side=THREE.DoubleSide;
     result[name]=material;
     if(name!=='crown')lights.push(material);
   }
@@ -134,7 +135,7 @@ function skins(THREE) {
 
 // Each tower is one exterior shell. Setbacks have four terrace strips, with no hidden slab faces.
 function towerShell(THREE,plot,skin,cap,crown) {
-  const vertices=[], uvs=[];
+  const vertices=[], uvs=[], panes=[];
   const geometry=new THREE.BufferGeometry();
   const bottom=.16;
   const doorWidth=4.9;
@@ -157,11 +158,38 @@ function towerShell(THREE,plot,skin,cap,crown) {
       const bz=start[1]+(end[1]-start[1])*U;
       quad([ax,v,az],[bx,v,bz],[bx,V,bz],[ax,V,az],[u*width/pitch,v/3.65,U*width/pitch,V/3.65],mat);
     }
-    if(!cut){strip(0,1,low,high);return;}
-    const side=(1-doorWidth/width)/2;
-    strip(0,side,low,high);
-    strip(1-side,1,low,high);
-    strip(side,1-side,doorTop,high);
+    if(!plot.facing||low>14.8){strip(0,1,low,high);return;}
+    const openings=[];
+    if(cut){
+      const side=(1-doorWidth/width)/2;
+      openings.push({a:side,b:1-side,low,high:doorTop,door:true});
+    }
+    for(const sill of [1.4,6.45,11.39]) {
+      for(const x of [.12,.29,.46,.63,.80]){
+        const size=.098;
+        if(cut&&sill<doorTop && x+size>.38&&x<.62)continue;
+        openings.push({a:x,b:x+size,low:sill,high:sill+2.14,door:false});
+      }
+    }
+    const stops=[...new Set([low,high,...openings.flatMap(item=>[item.low,item.high])
+      .filter(value=>value>low&&value<high)])].sort((a,b)=>a-b);
+    for(let i=1;i<stops.length;i++){
+      const v=stops[i-1],V=stops[i],mid=(v+V)/2;
+      let cursor=0;
+      const dx=end[0]-start[0],dz=end[1]-start[1];
+      for(const slot of openings.filter(item=>item.low<mid&&item.high>mid).sort((a,b)=>a.a-b.a)){
+        if(slot.a>cursor)strip(cursor,slot.a,v,V);
+        if(!slot.door){
+          const offsetX=dz/width*.021,offsetZ=-dx/width*.021;
+          const A=[start[0]+dx*slot.a+offsetX,v,start[1]+dz*slot.a+offsetZ];
+          const B=[start[0]+dx*slot.b+offsetX,v,start[1]+dz*slot.b+offsetZ];
+          const C=[B[0],V,B[2]],D=[A[0],V,A[2]];
+          panes.push(...A,...B,...C,...A,...C,...D);
+        }
+        cursor=Math.max(cursor,slot.b);
+      }
+      if(cursor<1)strip(cursor,1,v,V);
+    }
   }
   const terrace=(left,right,near,far,y)=>quad([left,y,far],[right,y,far],[right,y,near],[left,y,near],[0,0,1,1],1);
   let low=bottom;
@@ -194,10 +222,18 @@ function towerShell(THREE,plot,skin,cap,crown) {
   geometry.clearGroups();
   let offset=0;
   counts.forEach((count,type)=>{if(count)geometry.addGroup(offset,count,type);offset+=count;});
-  return new THREE.Mesh(geometry,[skin,cap,crown]);
+  const shell=new THREE.Mesh(geometry,[skin,cap,crown]);
+  if(panes.length){
+    const panel=new THREE.BufferGeometry();
+    panel.setAttribute('position',new THREE.Float32BufferAttribute(panes,3));
+    panel.computeVertexNormals();
+    const glass=new THREE.MeshStandardMaterial({color:0xa3b8ce,opacity:.36,transparent:true,depthWrite:false,roughness:.45,side:THREE.DoubleSide});
+    shell.add(new THREE.Mesh(panel,glass));
+  }
+  return shell;
 }
 
-function buildDecor(THREE,scene,navigation,material,box) {
+function buildDecor(THREE,scene,navigation,material,box,grid) {
   const { plan,edge,lines }=navigation;
   const city=new THREE.Group();
   scene.add(city);
@@ -206,8 +242,12 @@ function buildDecor(THREE,scene,navigation,material,box) {
   const snow=material(0xcadae1,.91);
   const slush=material(0x8b9eaa,.88);
   const marking=material(0xc0c7b2,.86);
-  const asphaltFloor=box(city,asphalt,0,-.62,0,edge*2+19,1,edge*2+19);
-  asphaltFloor.receiveShadow=true;
+  box(city,asphalt,0,-.62,0,edge*2+19,1,edge*2+19);
+  const shadowGround=new THREE.Mesh(new THREE.PlaneGeometry(116,116),new THREE.ShadowMaterial({opacity:.44,depthWrite:false}));
+  shadowGround.rotation.x=-Math.PI/2;
+  shadowGround.position.y=-.117;
+  shadowGround.receiveShadow=true;
+  city.add(shadowGround);
   box(city,material(0x1c3046,1),37,-.89,0,490,.4,800);
   const water=material(0x17364e,.31,.44);
   box(city,water,-242,-.78,0,132,.22,740);
@@ -228,7 +268,7 @@ function buildDecor(THREE,scene,navigation,material,box) {
     }
   }
   city.add(footpaths,lots);
-  lots.receiveShadow=true;
+
 
   const details=[];
   for(const street of lines){
@@ -264,22 +304,58 @@ function buildDecor(THREE,scene,navigation,material,box) {
   const poles=material(0x354555,.71,.2);
   const gold=new THREE.MeshBasicMaterial({color:0xffd899,toneMapped:false});
   const lampBulbs=[];
+  const posts=[], lamps=[], benches=[], parking=[], greenery=[];
+  function streetLamp(x,z) {
+    posts.push([x,2.48,z,.126,4.68,.126],[x+.42,4.87,z,.92,.088,.116]);
+    lamps.push([x+.85,4.77,z,.29,.09,.22]);
+    for(let i=0;i<12;i++)lampBulbs.push([x+Math.sin(i*1.4)*.092,.69+i*.24,z+Math.cos(i*1.4)*.092]);
+  }
+  for(let col=0;col<plan.cells;col++)for(let row=0;row<plan.cells;row++) {
+    if(grid[col][row])continue;
+    const x=lines[col]+plan.step/2,z=lines[row]+plan.step/2;
+    const publicSquare=col===2&&row===4;
+    if(!publicSquare&&(col+row)%3===1){
+      parking.push([x,.17,z,22,.067,20]);
+      for(let n=-2;n<3;n++)benches.push([x+n*4.1,.216,z,.075,.026,17]);
+    }else{
+      for(const offset of [-8,8]){
+        benches.push([x+offset,.71,z+6,3.25,.19,.59],[x+offset,.97,z+6.24,3.19,.18,.12],
+          [x+offset-1.18,.40,z+6,.17,.52,.54],[x+offset+1.18,.40,z+6,.17,.52,.54]);
+        greenery.push([x+offset,1.51,z-7,1.6,2.6,1.6],[x+offset,2.60,z-7,1.23,2.0,1.23]);
+      }
+    }
+    streetLamp(x-11,z+11);
+    streetLamp(x+11,z-10);
+  }
+  function pile(shape,paint,items){
+    const batch=new THREE.InstancedMesh(shape,paint,items.length);
+    items.forEach(([x,y,z,w,h,d],i)=>batch.setMatrixAt(i,matrix.makeScale(w,h,d).setPosition(x,y,z)));
+    city.add(batch);
+  }
+  for(const street of lines)for(const side of [-1,1]) {
+    for(let i=0;i<plan.cells;i++){
+      const middle=(lines[i]+lines[i+1])/2;
+      benches.push([street+side*4.82,.071,middle,.84,.14,32],[middle,.075,street+side*4.82,32,.14,.84]);
+    }
+  }
   for(const x of [-48,-36,-6,6,36,48]){
     for(const z of [-48,-36,-6,6,36,48]){
       if(Math.abs(x)>8&&Math.abs(z)>8&&(x+z)%24!==0)continue;
-      box(city,poles,x,2.48,z,.126,4.68,.126);
-      box(city,poles,x+.42,4.87,z,.92,.088,.116);
-      box(city,gold,x+.85,4.77,z,.29,.09,.22);
-      for(let i=0;i<12;i++)lampBulbs.push([x+Math.sin(i*1.4)*.092,.69+i*.24,z+Math.cos(i*1.4)*.092]);
+      streetLamp(x,z);
     }
   }
+  pile(geometry,poles,posts);
+  pile(geometry,gold,lamps);
+  pile(geometry,asphalt,parking);
+  pile(geometry,material(0x9aafbd,.94),benches);
+  pile(new THREE.ConeGeometry(1,1,8),material(0x456d6a,.93),greenery);
   const lights=new THREE.InstancedMesh(new THREE.SphereGeometry(.047,5,4),gold,lampBulbs.length);
   lampBulbs.forEach(([x,y,z],i)=>lights.setMatrixAt(i,matrix.makeTranslation(x,y,z)));
   city.add(lights);
   return gold;
 }
 
-export function createCity(THREE, OrbitControls, navigation, displays, ui) {
+export function createCity(THREE, OrbitControls, navigation, displays, offices, traffic, ui) {
   const vector=(x=0,y=0,z=0)=>new THREE.Vector3(x,y,z);
   const colors=new Map();
   const cube=new THREE.BoxGeometry();
@@ -299,9 +375,9 @@ export function createCity(THREE, OrbitControls, navigation, displays, ui) {
   const scene=new THREE.Scene();
   scene.background=new THREE.Color(0x537594);
   scene.fog=new THREE.FogExp2(0x7e9bb6,.0022);
-  const renderer=new THREE.WebGLRenderer({canvas:ui.canvas,antialias:true,alpha:false,powerPreference:'high-performance'});
+  const renderer=new THREE.WebGLRenderer({canvas:ui.canvas,antialias:false,alpha:false,powerPreference:'high-performance'});
   const mobile=matchMedia('(pointer: coarse)').matches;
-  renderer.setPixelRatio(Math.min(devicePixelRatio||1,mobile?1.25:1.5));
+  renderer.setPixelRatio(Math.min(window.devicePixelRatio,1.5));
   renderer.outputColorSpace=THREE.SRGBColorSpace;
   renderer.toneMapping=THREE.ACESFilmicToneMapping;
   renderer.toneMappingExposure=1.06;
@@ -312,7 +388,7 @@ export function createCity(THREE, OrbitControls, navigation, displays, ui) {
   const sun=new THREE.DirectionalLight(0xffe1b2,2.1);
   sun.position.set(-90,115,41);
   sun.castShadow=true;
-  sun.shadow.mapSize.setScalar(mobile?768:1536);
+  sun.shadow.mapSize.setScalar(mobile?512:768);
   Object.assign(sun.shadow.camera,{left:-75,right:75,top:85,bottom:-70,near:2,far:290});
   sun.shadow.normalBias=.12;
   sun.shadow.bias=-.00026;
@@ -326,7 +402,7 @@ export function createCity(THREE, OrbitControls, navigation, displays, ui) {
   const {result:skin,lights}=skins(THREE);
   const crownCap=material(0xe3c99e,.76);
   const grayCap=material(0xa6b5bd,.82);
-  const holidayLight=buildDecor(THREE,scene,navigation,material,box);
+  const holidayLight=buildDecor(THREE,scene,navigation,material,box,grid);
   const ink=material(0x172338,.82);
   const brass=material(0xb39368,.47,.32);
   const glazing=material(0x426079,.34,.16);
@@ -359,6 +435,7 @@ export function createCity(THREE, OrbitControls, navigation, displays, ui) {
       wallBounds(mx,0,oppositeMin,Mx,plot.height,oppositeMax),
       wallBounds(mx,0,minZ,west,plot.height,maxZ),
       wallBounds(east,0,minZ,Mx,plot.height,maxZ),
+      wallBounds(west,5.10,minZ,east,plot.height,maxZ),
     ];
     const blocker=wallBounds(west,0,minZ,east,5.1,maxZ);
     const hinges=[];
@@ -378,33 +455,6 @@ export function createCity(THREE, OrbitControls, navigation, displays, ui) {
     walls.push(...staticWalls);
     return { staticWalls,blocker,hinges,open:0,front };
   }
-  function lobby(plot) {
-    const interior=new THREE.Group();
-    plot.root.add(interior);
-    const floor=box(interior,material(0x617283,.79),0,.157,0,plot.width-1.07,.025,plot.depth-1.08);
-    floor.receiveShadow=true;
-    box(interior,material(0xd3c4a5,.76),0,3.67,-plot.facing*(plot.depth/2-.58),plot.width-1.37,6.86,.18);
-    for(const sign of [-1,1]){
-      box(interior,material(0xbbaf9f,.79),sign*(plot.width/2-.57),3.67,0,.16,6.86,plot.depth-1.49);
-    }
-    box(interior,material(0x9ca2a3,.82),0,6.91,0,plot.width-1.27,.12,plot.depth-1.28);
-    for(const x of [-5.2,5.2]){
-      box(interior,material(0xf2e5ca,.76),x,6.74,0,2.2,.072,17);
-      box(interior,holidayLight,x,6.66,0,1.77,.035,14);
-    }
-    const codeMonitor=displays.monitor(THREE);
-    const x=4.75;
-    const z=-plot.facing*4.6;
-    const wood=material(0x815e4e,.63);
-    box(interior,wood,x,1.26,z,3.09,.17,1.57);
-    for(const side of [-1,1])box(interior,ink,x+side*1.25,.724,z,.16,.87,1.11);
-    box(interior,ink,x,1.50,z,.217,.26,.39);
-    box(interior,ink,x,2.15,z,.073+2.21,1.294,.16);
-    plane(interior,codeMonitor.material,2.18,1.216,x,2.15,z+plot.facing*.089,plot.facing===1?0:Math.PI);
-    rooms.push({plot,codeMonitor});
-    walls.push(wallBounds(plot.x+x-1.50,.16,plot.z+z-.79,plot.x+x+1.50,1.40,plot.z+z+.79));
-  }
-
   function mount(plot,panel,face,y,width,height,center=0){
     const frame=new THREE.Group();
     const normal=face==='north'||face==='south' ? plot.depth/2 : plot.width/2;
@@ -417,28 +467,55 @@ export function createCity(THREE, OrbitControls, navigation, displays, ui) {
       frame.rotation.y=face==='west'?-Math.PI/2:Math.PI/2;
     }
     plot.root.add(frame);
+    (plot.signs??=[]).push(frame);
     box(frame,ink,0,0,0,width+.56,height+.60,.30);
     plane(frame,panel.material,width,height,0,0,.162,0);
   }
 
-  for(const plot of lots){
+  const templates=new Map();
+  const silhouettes=[];
+  function setSilhouette(plot, visible){
+    if(plot.rendered===visible)return;
+    plot.rendered=visible;
+    const scale=visible?1:0;
+    plot.batch.setMatrixAt(plot.index,new THREE.Matrix4().makeScale(plot.width/20*scale,plot.height/45*scale,plot.depth/20*scale).setPosition(plot.x,0,plot.z));
+    plot.batch.instanceMatrix.needsUpdate=true;
+  }
+  for(const plot of lots.filter(item=>!item.facing)){
+    const list=templates.get(plot.style)??[];
+    templates.set(plot.style,[...list,plot]);
+  }
+  for(const [style,list] of templates){
+    const model=towerShell(THREE,{tiers:[{top:39,w:20,d:20},{top:45,w:16.8,d:16.8}]},skin[style],grayCap,skin.crown);
+    const batch=new THREE.InstancedMesh(model.geometry,model.material,list.length);
+    batch.frustumCulled=false;
+    list.forEach((plot,index)=>{
+      Object.assign(plot,{batch,index});
+      setSilhouette(plot,true);
+      silhouettes.push(plot);
+      walls.push(plot.bounds);
+    });
+    scene.add(batch);
+  }
+  for(const plot of lots.filter(item=>item.facing)){
     const root=new THREE.Group();
     root.position.set(plot.x,0,plot.z);
     plot.root=root;
     plot.label=ui.districts[plot.id]?.label;
     scene.add(root);
     const shell=towerShell(THREE,plot,skin[plot.style],plot.style==='stone'?crownCap:grayCap,skin.crown);
-    shell.castShadow=Boolean(plot.facing);
-    shell.receiveShadow=Boolean(plot.facing);
+    shell.castShadow=true;
+    shell.receiveShadow=false;
+    plot.shell=shell;
     root.add(shell);
-    if(!plot.facing){walls.push(plot.bounds);continue;}
     if(plot.id==='hq'){
       const spire=new THREE.Mesh(new THREE.CylinderGeometry(.036,.67,7.94,12),brass);
       spire.position.y=136.03;
       root.add(spire);
     }
     plot.door=portal(plot);
-    lobby(plot);
+    plot.office=offices.buildOffice(THREE,plot,displays);
+    rooms.push(plot);
     const display=displays.billboard(THREE,plot.id);
     panels.push(display);
     const front=plot.facing===1?'south':'north';
@@ -493,25 +570,7 @@ export function createCity(THREE, OrbitControls, navigation, displays, ui) {
     ui.markers.append(button);
   }
 
-  function vehicle(parent,color) {
-    const frame=new THREE.Group();
-    const paint=material(color,.61,.10);
-    parent.add(frame);
-    box(frame,paint,0,.66,0,1.68,.63,3.10);
-    box(frame,glazing,0,1.154,-.13,1.41,.35,1.60);
-    box(frame,paint,0,1.405,-.13,1.40,.128,1.57);
-    box(frame,holidayLight,0,1.56,-.31,.52,.095,.31);
-    for(const x of [-.63,.63]){
-      box(frame,holidayLight,x,.715,1.575,.29,.153,.068);
-      for(const z of [-1.01,.98]){
-        const wheel=new THREE.Mesh(new THREE.CylinderGeometry(.31,.31,.18,12),ink);
-        wheel.rotation.z=Math.PI/2;
-        wheel.position.set(x*1.39,.32,z);
-        frame.add(wheel);
-      }
-    }
-    return frame;
-  }
+  const transit=traffic.streets(THREE,scene,navigation,bounding);
 
   function makeRoute(points) {
     const pieces=[];
@@ -526,20 +585,6 @@ export function createCity(THREE, OrbitControls, navigation, displays, ui) {
     }
     return { pieces, duration:meters };
   }
-  function trafficRoute(cx,cz) {
-    const points=[[cx,cz],[cx+42,cz],[cx+42,cz+42],[cx,cz+42],[cx,cz]]
-      .map(([x,z])=>({point:vector(x,-.097,z),drive:true}));
-    for(let i=1;i<points.length;i++){
-      if(navigation.sweep(THREE,points[i-1].point,points[i].point,bounding,1.2).distanceTo(points[i].point)>.01){
-        throw new Error('Traffic intersects a plot');
-      }
-    }
-    return makeRoute(points);
-  }
-  const taxis=[[-42,-42],[-42,0],[0,-42],[0,0],[42,42],[-84,-42]].map(([x,z],i)=>({
-    mesh:vehicle(scene,i%3===0?0xf8bf3a:0xeeb135),route:trafficRoute(x,z),phase:i*2.17,
-  }));
-
   function person(profile,index) {
     const wrapper=new THREE.Group();
     const body=new THREE.Group();
@@ -563,7 +608,8 @@ export function createCity(THREE, OrbitControls, navigation, displays, ui) {
       body.add(leg);
       return leg;
     });
-    const cab=vehicle(wrapper,0xf0b739);
+    const cab=traffic.createVehicle(THREE,0xf0b739,true);
+    wrapper.add(cab);
     cab.visible=false;
     wrapper.position.copy(park.work).add(vector((index%3)*1.25,0,Math.floor(index/3)*1.65));
     return { profile,index,wrapper,body,cab,steps,place:'lounge',goal:'lounge',route:null,row:{action:'idle'} };
@@ -603,21 +649,34 @@ export function createCity(THREE, OrbitControls, navigation, displays, ui) {
   orbit.enablePan=false;
   orbit.update();
 
+  const roomAt=position=>rooms.find(place=>position.x>place.bounds.min.x&&position.x<place.bounds.max.x&&
+    position.z>place.bounds.min.z&&position.z<place.bounds.max.z);
+  function nearLift(){
+    if(!walking)return null;
+    const office=roomAt(walker.camera.position)?.office;
+    const info=office?.info(walker.camera.position,walker.feet);
+    return info?{office,info}:null;
+  }
   const walker=navigation.walkingCamera(THREE,{
     canvas:ui.canvas,movePad:ui.movePad,lookPad:ui.lookPad, label:ui.walkPlace,
     initial:{x:-7,z:9,yaw:Math.atan2(14,18)},
-    getObstacles:()=>[...walls,...Array.from(places.values()).flatMap(p=>p.door&&p.door.open<.7?[p.door.blocker]:[])],
-    getRoom:position=>Array.from(places.values()).find(place=>place.door&&
-      place.bounds.min.x<position.x&&place.bounds.max.x>position.x&&place.bounds.min.z<position.z&&place.bounds.max.z>position.z),
+    getObstacles:(position,feet)=>[...walls,...rooms.flatMap(p=>p.door.open<.7?[p.door.blocker]:[]),
+      ...(roomAt(position)?.office.collision(position,feet)??[])],
+    getRoom:roomAt,
+    getFeet:(position,feet)=>roomAt(position)?.office.walkHeights(position,feet)??.13,
   });
   let walking=false,focus=null,follow=null,tween;
+  let chosenFloor=null;
+  let resolution=1;
+  let samples=0, misses=0, stableWindows=0;
+  let layoutDirty=true;
+  let isDemo=false;
   let width=1,height=1,dockSize=-1;
   let options={light:'day',snow:true,transport:'mixed'};
   let snapshot={};
   let relay=null;
   const projected=vector();
   const before=vector();
-  const aim=vector();
   const heightProbe=vector();
   const approach=new THREE.Ray();
   const clearSamples=central.flatMap(tower=>{
@@ -626,45 +685,7 @@ export function createCity(THREE, OrbitControls, navigation, displays, ui) {
       vector(place.x,16,place.z+place.facing*13)];
   });
 
-  const count=4000;
-  const field=new Float32Array(count*3);
-  const snowfallGeometry=new THREE.BufferGeometry();
-  snowfallGeometry.setAttribute('position',new THREE.BufferAttribute(field,3));
-  const flake=image(64,64);
-  const flakeInk=flake.getContext('2d');
-  const halo=flakeInk.createRadialGradient(32,32,3,32,32,32);
-  halo.addColorStop(0,'#fff');
-  halo.addColorStop(.36,'#fff');
-  halo.addColorStop(.68,'#ffffff77');
-  halo.addColorStop(1,'#ffffff00');
-  flakeInk.fillStyle=halo;
-  flakeInk.fillRect(0,0,64,64);
-  const flakeTexture=new THREE.CanvasTexture(flake);
-  const snowflakes=new THREE.Points(snowfallGeometry,new THREE.PointsMaterial({
-    color:0xeef7ff,map:flakeTexture,alphaTest:.06,size:.6,transparent:true,opacity:.9,depthWrite:false,
-  }));
-  snowflakes.name='snow-4000';
-  snowflakes.frustumCulled=false;
-  scene.add(snowflakes);
-  function placeSnow(clock,view){
-    const spread=walking?86:263;
-    view.getWorldDirection(aim);
-    snowflakes.position.copy(view.position).addScaledVector(aim,walking?48:158);
-    const origin=snowflakes.position;
-    const viewX=view.position.x-origin.x;
-    const viewY=view.position.y-origin.y;
-    const viewZ=view.position.z-origin.z;
-    for(let i=0;i<count;i++){
-      const offset=i*3;
-      field[offset]=((i*119.713)%spread)-spread/2+Math.sin(clock*.44+i)*1.28;
-      field[offset+1]=((i*137.117-clock*(1.4+i%4)+10000)%spread)-spread/2;
-      field[offset+2]=((i*192.817)%spread)-spread/2+Math.cos(clock*.29+i)*.8;
-      if(walking&&(field[offset]-viewX)**2+(field[offset+1]-viewY)**2+(field[offset+2]-viewZ)**2<36){
-        field[offset+1]=spread;
-      }
-    }
-    snowfallGeometry.attributes.position.needsUpdate=true;
-  }
+  const snowfall=traffic.createSnow(THREE,scene);
 
   const signal=new THREE.Mesh(new THREE.OctahedronGeometry(1.35),new THREE.MeshBasicMaterial({color:0x78e7fc,fog:false}));
   scene.add(signal);
@@ -700,22 +721,36 @@ export function createCity(THREE, OrbitControls, navigation, displays, ui) {
     camera.setViewOffset(width,height,0,Math.round(dockSize*.14),width,height);
     walker.camera.aspect=ratio;
     walker.camera.updateProjectionMatrix();
-    renderer.setSize(width,height,false);
+    renderer.setSize(Math.round(width*resolution),Math.round(height*resolution),false);
+    layoutDirty=true;
   }
   const resize=new ResizeObserver(layout);
   resize.observe(ui.canvas);
+  resize.observe(ui.board);
 
-  function select(id,profileId){
+  function showFloor(value) {
+    chosenFloor=value==='auto'?null:Number(value);
+    if(!focus||!places.get(focus)?.office)return;
+    const place=places.get(focus);
+    const level=offices.floors[chosenFloor??place.office.floor];
+    tween={at:vector(place.x,level+2,place.z),zoom:width<720?4.6:6.05};
+    follow=null;
+    layoutDirty=true;
+  }
+  function select(id,profileId) {
     focus=id;
     follow=actors.find(actor=>actor.profile.id===profileId);
-    const point=follow?.wrapper.position??places.get(focus);
-    const level=follow?1.5:focus==='hq'?54:focus==='lounge'?7:31;
-    tween=point?{at:vector(point.x,point.y===undefined?level:point.y+level,point.z),zoom:follow?4.3:focus==='hq'?1.51:2.05}:
-      {at:target.clone(),zoom:1};
+    chosenFloor=null;
+    ui.onOffice(Boolean(places.get(focus)?.office),true);
+    if(places.get(focus)?.office){showFloor('auto');return;}
+    const place=places.get(focus);
+    tween=place?{at:vector(place.x,6,place.z),zoom:2.7}:{at:target.clone(),zoom:1};
+    layoutDirty=true;
   }
 
   function update(data,nextRelay,snap=false,nextSnapshot={}){
     snapshot=nextSnapshot;
+    isDemo=Boolean(nextSnapshot.demoActivity);
     relay=nextRelay;
     for(const actor of actors){
       const row=data.get(actor.profile.id);
@@ -747,11 +782,17 @@ export function createCity(THREE, OrbitControls, navigation, displays, ui) {
         actor.started=now;
       }
     }
-    for(const {plot,codeMonitor} of rooms){
-      const current=actors.find(actor=>!actor.profile.job&&actor.row.action!=='idle'&&actor.goal===plot.id&&
-        (snapshot.agents?.[actor.profile.id]?.code_snippet||snapshot.agents?.[actor.profile.id]?.current_log));
-      codeMonitor.show(current?.profile.title,snapshot.agents?.[current?.profile.id]);
+    const now=performance.now()/1000;
+    for(const plot of rooms){
+      const state=actors.filter(actor=>actor.goal===plot.id&&actor.row.activity!=='idle')
+        .sort((a,b)=>Number(b.row.activity==='error')-Number(a.row.activity==='error'))[0];
+      const telemetry=state?(state.profile.job?snapshot.jobs?.[state.profile.job]:snapshot.agents?.[state.profile.id]):undefined;
+      const demo=plot.id==='dev'&&nextSnapshot.demoActivity;
+      plot.office.set(demo?{...nextSnapshot.demoScene,activity:demo}:
+        { ...telemetry, activity:state?.row.activity??'idle', title:state?.profile.title,
+          subject:telemetry?.subject??telemetry?.files?.[0] },now);
     }
+    if(isDemo&&focus==='dev'&&chosenFloor===null)showFloor('auto');
   }
 
   function moveAlong(mesh,route,time){
@@ -768,10 +809,30 @@ export function createCity(THREE, OrbitControls, navigation, displays, ui) {
     walker.setActive(active);
     orbit.enabled=!active;
     ui.onWalk(active);
+    ui.onOffice(!active&&Boolean(places.get(focus)?.office),false);
+    layoutDirty=true;
     layout();
   }
   let last=performance.now()/1000;
-  let frames=0;
+  const markerAt=vector(Infinity,Infinity,Infinity);
+  let markerZoom=-1;
+  let backgroundAt=vector(Infinity,Infinity,Infinity);
+  let lastWalking;
+  let liftStamp='';
+  function liftRequest(destination){
+    const current=nearLift();
+    if(current)current.office.request(walker.camera.position,walker.feet,destination,last);
+  }
+  let panelPair=0;
+  function texts(){
+    if(document.hidden)return;
+    const now=performance.now()/1000;
+    const motion=!ui.reducedMotion.matches;
+    const first=panelPair++%2;
+    for(let index=first;index<panels.length;index+=2)panels[index].animate(motion?now:0,snapshot,!motion);
+    for(const plot of rooms)if(plot.office.root.visible)plot.office.textures();
+  }
+  setInterval(texts,400);
   function render(ms){
     const clock=ms/1000;
     const dt=Math.min(.16,Math.max(0,clock-last));
@@ -803,7 +864,18 @@ export function createCity(THREE, OrbitControls, navigation, displays, ui) {
       actor.steps[0].rotation.x=gait;
       actor.steps[1].rotation.x=-gait;
     }
-    for(const taxi of taxis)moveAlong(taxi.mesh,taxi.route,motion?(clock+taxi.phase)%taxi.route.duration:taxi.phase%taxi.route.duration);
+    transit.update(clock,motion);
+    const focusRoom=places.get(focus)?.office;
+    const lift=nearLift();
+    const nextLiftStamp=JSON.stringify(lift?.info??null);
+    if(nextLiftStamp!==liftStamp){liftStamp=nextLiftStamp;ui.onLift(lift?.info??null);}
+    for(const plot of rooms){
+      const cutaway=!walking&&focusRoom===plot.office;
+      plot.shell.visible=!cutaway;
+      for(const sign of plot.signs)sign.visible=!cutaway;
+      plot.office.show(walking,cutaway,cutaway?chosenFloor??plot.office.floor:null,walker.camera.position);
+      plot.office.update(clock,dt,motion,walking?walker.camera.position:null);
+    }
 
     if(!walking){
       before.copy(camera.position);
@@ -825,30 +897,36 @@ export function createCity(THREE, OrbitControls, navigation, displays, ui) {
         camera.lookAt(orbit.target);
       }
     }
-    if(dockSize!==ui.board.offsetHeight)layout();
     camera.updateMatrixWorld();
 
-    // Foreground blocks regain their full geometry in walking mode.
-    for(const plot of lots){
-      if(plot.facing)continue;
-      plot.root.visible=walking||!clearSamples.some(at=>{
-        approach.origin.copy(camera.position);
-        approach.direction.copy(at).sub(camera.position).normalize();
-        const hit=approach.intersectBox(plot.bounds,heightProbe);
-        return hit&&camera.position.distanceToSquared(hit)<camera.position.distanceToSquared(at);
-      });
+    const view=walking?walker.camera:camera;
+    if(walking!==lastWalking||!walking&&backgroundAt.distanceToSquared(camera.position)>4) {
+      backgroundAt.copy(camera.position);
+      lastWalking=walking;
+      for(const plot of silhouettes) {
+        const visible=walking||!clearSamples.some(at=>{
+          approach.origin.copy(camera.position);
+          approach.direction.copy(at).sub(camera.position).normalize();
+          const hit=approach.intersectBox(plot.bounds,heightProbe);
+          return hit&&camera.position.distanceToSquared(hit)<camera.position.distanceToSquared(at);
+        });
+        setSilhouette(plot,visible);
+      }
     }
-    for(const [id,marker] of placards){
-      const place=places.get(id);
-      projected.set(place.x,id==='lounge'?13:place.height+2,place.z).project(camera);
-      const x=(projected.x*.5+.5)*width;
-      const y=(-projected.y*.5+.5)*height;
-      marker.hidden=walking||Boolean(focus||follow)||x<23||x>width-23||y<46||y>height-dockSize-52;
-      if(!marker.hidden)marker.style.transform='translate('+x+'px,'+y+'px) translate(-50%,-100%)';
+    if(layoutDirty||markerAt.distanceToSquared(camera.position)>.003||camera.zoom!==markerZoom) {
+      markerAt.copy(camera.position);
+      markerZoom=camera.zoom;
+      layoutDirty=false;
+      for(const [id,marker] of placards){
+        const place=places.get(id);
+        projected.set(place.x,id==='lounge'?13:place.height+2,place.z).project(camera);
+        const x=(projected.x*.5+.5)*width;
+        const y=(-projected.y*.5+.5)*height;
+        marker.hidden=walking||Boolean(focus||follow)||x<23||x>width-23||y<46||y>height-dockSize-52;
+        if(!marker.hidden)marker.style.transform='translate('+x+'px,'+y+'px) translate(-50%,-100%)';
+      }
     }
-    for(const display of panels)display.animate(motion?clock:0,snapshot,!motion);
-    snowflakes.visible=options.snow;
-    if(snowflakes.visible)placeSnow(motion?clock:0,walking?walker.camera:camera);
+    snowfall.update(motion?clock:0,view,options.snow&&!(walking&&roomAt(walker.camera.position)));
     const receiving=relay?.stage==='receiving';
     signal.visible=Boolean(receiving||relay?.stage==='returning');
     if(signal.visible){
@@ -856,10 +934,22 @@ export function createCity(THREE, OrbitControls, navigation, displays, ui) {
       const hq=places.get('hq');
       signal.position.set(hq.x,141+22*(receiving?1-phase:phase),hq.z);
     }
-    if(frames++%14===0)renderer.shadowMap.needsUpdate=true;
-    renderer.render(scene,walking?walker.camera:camera);
+    // Keep the CSS size fixed while reducing GPU fill under sustained overload.
+    if(dt>.022)misses++;
+    if(++samples>=48){
+      const old=resolution;
+      if(misses>4){
+        resolution=Math.max(.42,resolution*.82);
+        stableWindows=0;
+      }else if(misses<=1){
+        if(++stableWindows>=24&&resolution<1){resolution=Math.min(1,resolution+.04);stableWindows=0;}
+      }else stableWindows=0;
+      misses=samples=0;
+      if(old!==resolution)renderer.setSize(Math.round(width*resolution),Math.round(height*resolution),false);
+    }
+    renderer.render(scene,view);
   }
   layout();
   renderer.setAnimationLoop(render);
-  return { layout,select,walk,update,setOptions };
+  return { layout,select,walk,update,setOptions,showFloor,liftRequest };
 }

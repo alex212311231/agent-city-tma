@@ -73,20 +73,6 @@ const profiles = [
 ];
 
 const empty = { action: 'idle', district: 'lounge', detail: '', files: [] };
-const demoSnapshot = {
-  agents: {
-    coder: { project: 'dev', action: 'coding', detail: 'Собирает приложение' },
-    tester: { project: 'grants', action: 'testing', detail: 'Проверяет радар' },
-    reporter: { project: 'moex', action: 'folders', detail: 'Переносит архив на сервер' },
-  },
-};
-const demoSignal = {
-  agents: {
-    ...demoSnapshot.agents,
-    tester: { project: 'grants', action: 'testing', detail: 'Проверяет радар' },
-    coder: { project: 'dev', action: 'reporting', detail: 'Передаёт результат сборки' },
-  },
-};
 const orbitalLabels = {
   receiving: 'Космос → штаб',
   working: 'Штаб → агенты',
@@ -106,6 +92,20 @@ const districtButtons = [...document.querySelectorAll('[data-district]')];
 let city;
 let displaySnapshot = {};
 const orbitButton = document.getElementById('orbit-mode');
+const demoControl=document.getElementById('demo-activity');
+const floorPicker=document.getElementById('floor-picker');
+const floorControl=document.getElementById('office-floor');
+const liftPanel=document.getElementById('lift-panel');
+const liftStatus=document.getElementById('lift-status');
+const liftCall=document.getElementById('lift-call');
+const liftButtons=[...liftPanel.querySelectorAll('[data-floor]')];
+floorControl.addEventListener('change',()=>city?.showFloor(floorControl.value));
+liftCall.addEventListener('click',()=>city?.liftRequest(null));
+for(const button of liftButtons)button.addEventListener('click',()=>city?.liftRequest(Number(button.dataset.floor)));
+document.addEventListener('keydown',event=>{
+  if(event.code==='KeyE'&&!liftPanel.hidden&&!liftCall.disabled)city?.liftRequest(null);
+});
+demoControl.addEventListener('change',()=>{ if(forcedDemo)showDemo(); });
 const walkButton = document.getElementById('walk-mode');
 orbitButton.addEventListener('click', () => city?.walk(false));
 walkButton.addEventListener('click', () => city?.walk(true));
@@ -148,9 +148,11 @@ function normalize(row, profile) {
   const oldAction = Object.hasOwn(legacyActions, row?.phase) ? legacyActions[row.phase] : 'idle';
   const action = Object.hasOwn(actionNames, row?.action) ? row.action : oldAction;
   const project = ['moex', 'grants', 'dev'].includes(row?.project) ? row.project : profile.job;
-  const district = action === 'idle' ? 'lounge' : profile.id === 'lead' ? 'hq' : (project ?? 'dev');
+  const legacyActivity={ folders:'read_files',coding:'write_code',testing:'run_tests',reporting:'deploy_report',idle:'idle' };
+  const activity=row?.activity??(row?.phase==='blocked'?'error':legacyActivity[action]);
+  const district = activity==='idle' ? 'lounge' : profile.id === 'lead' ? 'hq' : (project ?? 'dev');
   return {
-    action, district,
+    action, district, activity,
     phase: row?.phase,
     detail: typeof row?.detail === 'string' ? row.detail : '',
     files: Array.isArray(row?.files) ? row.files.filter(file => typeof file === 'string').slice(0, 8) : [],
@@ -221,17 +223,29 @@ function updateConnectionLabel() {
           : 'Живые статусы доступны из меню Telegram';
 }
 
+const examples={
+  read_files:{title:'Coder',subject:'daily/job.py',detail:'Ищет файлы в архиве'},
+  write_code:{title:'Coder',subject:'parser.py',detail:'Пишет парсер',code_snippet:'def parse_batch(items):\n    return [item.strip() for item in items]'},
+  run_tests:{title:'QA',subject:'tests',detail:'Тесты прошли',test_count:529,test_result:'success',current_log:'# tests 529\n# pass 529'},
+  error:{title:'QA',subject:'tests/test_parser.py',detail:'Разбирает сбой теста',test_count:529,test_result:'failure',current_log:'# tests 529\n# fail 1'},
+  deploy_report:{title:'Reporter',subject:'Отчёт в Telegram',detail:'Передаёт результат в штаб'},
+  idle:{title:'Команда',detail:'Отдыхает в лаунже'},
+};
 function showDemo() {
   clearTimeout(demoInterval);
-  const stages = [
-    ['receiving', 'Задание приходит в Эмпайр-стейт-билдинг', { agents: { lead: { action: 'folders', detail: 'Получает поручение' } } }, 4300],
-    ['working', 'Агенты забрали задание в штабе', demoSnapshot, 10500],
-    ['returning', 'Reporter вернул результат в штаб', demoSignal, 5500],
-  ];
+  const sequence=Object.keys(examples);
+  const actionFor={read_files:'folders',write_code:'coding',run_tests:'testing',error:'testing',deploy_report:'reporting',idle:'idle'};
+  const manual=forcedDemo&&demoControl.value!=='auto';
   function play(index) {
-    const [stage, detail, snapshot, duration] = stages[index];
-    apply({ ...snapshot, relay: { stage, detail, project: 'dev', updatedAt: new Date().toISOString() } });
-    demoInterval = setTimeout(() => play((index + 1) % stages.length), duration);
+    const activity=manual?demoControl.value:sequence[index];
+    const example=examples[activity];
+    apply({
+      demoActivity:activity,demoScene:example,
+      agents:{coder:{...example,action:actionFor[activity],activity,project:'dev'}},
+      relay:{stage:activity==='deploy_report'?'returning':activity==='error'?'blocked':'working',
+        updatedAt:new Date().toISOString(),detail:'Демо · '+example.detail,project:'dev'},
+    });
+    if(!manual)demoInterval=setTimeout(()=>play((index+1)%sequence.length),11500);
   }
   play(0);
 }
@@ -336,12 +350,13 @@ function selectDistrict(id, agentId) {
 function toggleDemo() {
   forcedDemo = !forcedDemo;
   elements.demo.setAttribute('aria-pressed', String(forcedDemo));
+  demoControl.hidden=!forcedDemo;
   elements.demoLabel.textContent = forcedDemo ? 'Рабочий режим' : 'Демо';
   clearTimeout(demoInterval);
   if (forcedDemo) {
     apply({ agents: {} }, true);
     showDemo();
-    selectDistrict(null);
+    selectDistrict('dev');
   } else if (liveData) {
     apply(liveData, true);
   } else {
@@ -549,21 +564,36 @@ connect();
 
 Promise.all([
   import('three'), import('three/addons/controls/OrbitControls.js'),
-  import('city/world'), import('city/navigation'), import('city/displays'),
+  import('city/world'), import('city/navigation'), import('city/displays'), import('city/offices'), import('city/traffic'),
 ])
-  .then(([THREE, { OrbitControls }, world, navigation, displays]) => {
-    city = world.createCity(THREE, OrbitControls, navigation, displays, {
+  .then(([THREE, { OrbitControls }, world, navigation, displays, offices, traffic]) => {
+    city = world.createCity(THREE, OrbitControls, navigation, displays, offices, traffic, {
       canvas: elements.canvas, markers: elements.markers, profiles, districts, board, reducedMotion,
       movePad: document.getElementById('walk-move'),
       lookPad: document.getElementById('walk-look'),
       walkPlace: document.getElementById('walk-place'),
       lightMode: applyLight,
+      onLift(info) {
+        liftPanel.hidden=!info;
+        if(!info)return;
+        liftCall.disabled=info.inside||info.moving||info.at===info.floor;
+        liftStatus.textContent=info.moving?'Лифт в пути':'Лифт · этаж '+(info.at+1);
+        for(const [index,button] of liftButtons.entries()){
+          button.disabled=!info.inside||info.moving||index===info.at;
+          button.setAttribute('aria-pressed',String(index===info.at));
+        }
+      },
+      onOffice(visible,reset){
+        floorPicker.hidden=!visible;
+        if(reset)floorControl.value='auto';
+      },
       onSelect: selectDistrict,
       onWalk(walking) {
         elements.app.toggleAttribute('data-walking', walking);
         orbitButton.setAttribute('aria-pressed', String(!walking));
         walkButton.setAttribute('aria-pressed', String(walking));
         document.getElementById('walk-hud').hidden = !walking;
+        if(!walking)liftPanel.hidden=true;
       },
     });
     walkButton.disabled = false;

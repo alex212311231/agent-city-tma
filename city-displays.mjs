@@ -21,12 +21,14 @@ const mono = 'Consolas,monospace';
 const format = new Intl.NumberFormat('ru-RU',{maximumFractionDigits:2});
 
 export function billboard(THREE,id) {
-  const {ctx,texture,material} = screen(THREE,960,540);
+  const {ctx,texture,material} = screen(THREE,576,324);
+  ctx.scale(.6,.6);
   const {a,b,accent,white} = schemes[id];
   const background = document.createElement('canvas');
-  background.width=960;
-  background.height=540;
+  background.width=576;
+  background.height=324;
   const art=background.getContext('2d');
+  art.scale(.6,.6);
   const gradient=art.createLinearGradient(0,500,935,0);
   gradient.addColorStop(0,a);
   gradient.addColorStop(1,b);
@@ -50,10 +52,10 @@ export function billboard(THREE,id) {
   let prior;
 
   function animate(time,state,reduced) {
-    if (state===prior && (reduced || time-last<.115)) return;
+    if (state===prior && (reduced || time-last<.399)) return;
     prior=state;
     last=time;
-    ctx.drawImage(background,0,0);
+    ctx.drawImage(background,0,0,960,540);
     const market=state.market;
     const quotes=market?.quotes??[];
     const ticker=quotes.length ? quotes.map(q=>q.symbol+' '+format.format(q.price)+' ₽').join('   /   ') :
@@ -164,7 +166,8 @@ export function billboard(THREE,id) {
 }
 
 export function monitor(THREE) {
-  const {ctx,texture,material}=screen(THREE,950,530);
+  const {ctx,texture,material}=screen(THREE,570,318);
+  ctx.scale(.6,.6);
   const tokens=/(\/\/.*|#.*|'[^']*'|"[^"]*"|\b(?:export|import|const|let|class|function|return|async|await|def|for|from|try|new|assert)\b|\b\d+(?:\.\d+)?\b)/gu;
   let previous;
   function show(title='',entry={}) {

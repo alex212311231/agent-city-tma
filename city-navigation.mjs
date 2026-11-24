@@ -83,9 +83,10 @@ function controlPad(element) {
   return { state, reset };
 }
 
-export function walkingCamera(THREE, { canvas, movePad, lookPad, initial, label, getObstacles, getRoom }) {
+export function walkingCamera(THREE, { canvas, movePad, lookPad, initial, label, getObstacles, getRoom, getFeet }) {
   const camera = new THREE.PerspectiveCamera(69, 1, .10, 1000);
-  camera.position.set(initial.x, 2.12, initial.z);
+  let feet=.13;
+  camera.position.set(initial.x, feet+1.75, initial.z);
   const move = controlPad(movePad);
   const look = controlPad(lookPad);
   const keys = new Set();
@@ -145,8 +146,10 @@ export function walkingCamera(THREE, { canvas, movePad, lookPad, initial, label,
     const step = Math.min(.18,delta) * speed / length;
     vector.set(-thrust*Math.sin(yaw) + strafe*Math.cos(yaw), 0, -thrust*Math.cos(yaw) - strafe*Math.sin(yaw)).multiplyScalar(step);
     const pos = camera.position;
+    feet=getFeet(pos,feet);
+    pos.y=feet+1.75;
     if (vector.lengthSq() > 0) {
-      const obstacles = getObstacles();
+      const obstacles = getObstacles(pos,feet);
       const limit = edge - 3;
       candidate.copy(pos);
       candidate.x = Math.max(-limit, Math.min(limit, pos.x + vector.x));
@@ -160,5 +163,5 @@ export function walkingCamera(THREE, { canvas, movePad, lookPad, initial, label,
     if (name !== oldLabel) label.textContent = oldLabel = name;
   }
   camera.rotation.set(pitch,yaw,0,'YXZ');
-  return { camera, setActive, update };
+  return { camera, setActive, update, get feet(){ return feet; } };
 }

@@ -74,7 +74,7 @@ h1 { font-size: clamp(1.35rem, 4.5vw, 2.25rem); line-height: 1.02; letter-spacin
 .dashboard-header { justify-content: space-between; margin-bottom: 8px; }
 .dashboard-header h2 { font-size: 1rem; }
 .dashboard-header p { font-size: .78rem; line-height: 1.21; margin-top: 2px; color: var(--muted); }
-.dashboard-controls { flex-shrink: 0; }
+.dashboard-controls { flex-shrink: 0; flex-wrap: wrap; justify-content: flex-end; }
 .outline-button, .primary-button, .agent-focus { border-radius: 7px; min-height: 34px; padding: 5px 9px; font-size: .81rem; font-weight: 650; border: 1px solid var(--line); }
 .outline-button, .agent-focus { background: #233a56; }
 .demo-button[aria-pressed="true"], .agent-focus[aria-pressed="true"] { background: #2c4966; border-color: #8db4a1; }
@@ -155,4 +155,21 @@ input { accent-color: var(--pine); }
   .camera-switch { top: calc(env(safe-area-inset-top) + 54px); }
   .app[data-walking] .camera-switch { top: calc(env(safe-area-inset-top) + 13px); }
   .district { top: calc(env(safe-area-inset-top) + 103px); }
+}
+
+.floor-picker { position:absolute; top:calc(env(safe-area-inset-top) + 160px); right:var(--side); z-index:4;
+  border-radius:9px; padding:7px 9px; display:flex; align-items:center; gap:7px; font-size:.8rem; }
+.floor-picker select,.dashboard-controls select { color:#eef5ff; background:#253d5a; border:1px solid var(--line);
+  border-radius:7px; padding:6px; }
+.app[data-folded] .floor-picker,.app[data-walking] .floor-picker { display:none; }
+.lift-panel { pointer-events:auto; position:absolute; bottom:calc(env(safe-area-inset-bottom) + 58px);
+  left:50%; transform:translateX(-50%); min-height:41px; padding:6px 9px; display:flex; gap:6px; align-items:center;
+  border-radius:10px; white-space:nowrap; }
+.lift-panel button { min-width:32px; background:#284768; border:1px solid var(--line); border-radius:6px; min-height:30px; padding:3px 7px; }
+.lift-panel button[aria-pressed="true"] { background:#5d92ab; color:#071525; }
+.lift-panel button:disabled { opacity:.45; }
+@media (pointer:coarse) { .lift-panel { bottom:calc(env(safe-area-inset-bottom) + 129px); } }
+@media (max-width:620px) {
+  .floor-picker { top:calc(env(safe-area-inset-top) + 189px); }
+  .dashboard-controls { max-width:72%; } .dashboard-controls select { max-width:88px; font-size:.72rem; }
 }

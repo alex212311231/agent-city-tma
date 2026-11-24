@@ -6,18 +6,20 @@
   <meta name="theme-color" content="#0b132b">
   <meta name="description" content="Зимний офис AI Hub. Задания, маршруты и рабочие места агентов.">
   <title>Таймс-сквер · AI Hub</title>
-  <link rel="stylesheet" href="./office.css?v=6bad36f8f6ee">
+  <link rel="stylesheet" href="./office.css?v=0a69cc180dfd">
   <script type="importmap">
     {"imports":{"three":"https://cdn.jsdelivr.net/npm/three@0.180.0/build/three.module.js",
       "three/addons/":"https://cdn.jsdelivr.net/npm/three@0.180.0/examples/jsm/",
-      "city/world":"./city-world.mjs?v=b38516c65830",
-      "city/navigation":"./city-navigation.mjs?v=2d39a1ff596c",
-      "city/displays":"./city-displays.mjs?v=01443712f0bb",
+      "city/world":"./city-world.mjs?v=a41764854455",
+      "city/navigation":"./city-navigation.mjs?v=fd7d663d24c8",
+      "city/displays":"./city-displays.mjs?v=8a772091f2fb",
+      "city/offices":"./city-offices.mjs?v=0542561a0820",
+      "city/traffic":"./city-traffic.mjs?v=7b1d2d35dd7b",
       "city/music":"./city-music.mjs?v=16ecba2176dc"}}
   </script>
   <script defer src="https://telegram.org/js/telegram-web-app.js"></script>
   <script defer src="./config.js"></script>
-  <script defer src="./office.js?v=5733081ed2d6"></script>
+  <script defer src="./office.js?v=6792c3ddbc63"></script>
 </head>
 <body>
   <main class="app" id="app">
@@ -47,6 +49,13 @@
       <p class="walk-help glass">WASD · Shift для ускорения · Зажмите левую кнопку для обзора</p>
       <div class="joystick joystick-left" id="walk-move" aria-label="Движение"><i aria-hidden="true"></i></div>
       <div class="joystick joystick-right" id="walk-look" aria-label="Поворот камеры"><i aria-hidden="true"></i></div>
+      <div id="lift-panel" class="lift-panel glass" hidden>
+        <span id="lift-status" role="status">Лифт</span>
+        <button id="lift-call" type="button">Вызвать</button>
+        <button data-floor="0" type="button" aria-label="Первый этаж">1</button>
+        <button data-floor="1" type="button" aria-label="Второй этаж">2</button>
+        <button data-floor="2" type="button" aria-label="Третий этаж">3</button>
+      </div>
       <span class="walk-target" aria-hidden="true"></span>
     </div>
 
@@ -55,6 +64,10 @@
       <button id="overview" class="outline-button" type="button">К городу</button>
     </aside>
 
+    <div id="floor-picker" class="floor-picker glass" hidden>
+      <label for="office-floor">Этаж офиса</label>
+      <select id="office-floor"><option value="auto">Рабочая сценка</option><option value="0">1 · Лобби</option><option value="1">2 · Офис</option><option value="2">3 · Архив</option></select>
+    </div>
     <section class="dock" id="dock" aria-label="Управление городом">
       <button id="board-toggle" class="board-toggle glass" type="button" aria-expanded="true" aria-controls="board">
         <span class="grip" aria-hidden="true"></span><span id="board-label">Свернуть панель</span>
@@ -72,6 +85,10 @@
           <div class="dashboard-header">
             <div><h2>Агенты</h2><p id="note">Подключаемся к серверу статусов…</p></div>
             <div class="dashboard-controls">
+              <select id="demo-activity" aria-label="Сценка демо" hidden>
+                <option value="auto">Сценки</option><option value="read_files">Архив</option><option value="write_code">Код</option>
+                <option value="run_tests">Тесты</option><option value="error">Ошибка</option><option value="deploy_report">Отчёт</option><option value="idle">Лаунж</option>
+              </select>
               <button id="demo" class="outline-button demo-button" type="button" aria-pressed="false"><span id="demo-label">Демо</span></button>
               <button id="new-task" class="primary-button" type="button" hidden>Новое задание</button>
             </div>
