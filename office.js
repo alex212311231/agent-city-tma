@@ -29,7 +29,11 @@ const elements = {
   newTask: document.querySelector('#new-task'),
   dialog: document.querySelector('#task-dialog'),
   taskForm: document.querySelector('#task-form'),
+  orbital: document.querySelector('#orbital-status'),
+  orbitalStage: document.querySelector('#orbital-stage'),
+  orbitalDetail: document.querySelector('#orbital-detail'),
   taskProject: document.querySelector('#task-project'),
+  sendFiles: document.querySelector('#send-files'),
   taskText: document.querySelector('#task-text'),
   taskMessage: document.querySelector('#task-message'),
   taskReceipt: document.querySelector('#task-receipt'),
@@ -79,6 +83,14 @@ const demoSignal = {
     coder: { project: 'dev', action: 'reporting', detail: 'Передаёт результат сборки' },
   },
 };
+const orbitalLabels = {
+  receiving: 'Космос → штаб',
+  working: 'Штаб → агенты',
+  returning: 'Штаб → космос',
+  sent: 'Результат доставлен',
+  blocked: 'Нужно внимание',
+};
+let relayStatus;
 const reducedMotion = matchMedia('(prefers-reduced-motion: reduce)');
 const local = location.origin === 'http://127.0.0.1:8765';
 const endpoint = local ? location.origin : window.OFFICE_CONFIG?.tunnel;
@@ -167,7 +179,15 @@ function apply(snapshot) {
     return line;
   }));
   elements.jobs.hidden = !jobs.length;
-  city?.update(rows);
+  const nextRelay = snapshot.relay;
+  relayStatus = nextRelay && Object.hasOwn(orbitalLabels, nextRelay.stage) ? nextRelay : null;
+  elements.orbital.hidden = !relayStatus;
+  if (relayStatus) {
+    elements.orbital.dataset.stage = relayStatus.stage;
+    elements.orbitalStage.textContent = orbitalLabels[relayStatus.stage];
+    elements.orbitalDetail.textContent = typeof relayStatus.detail === 'string' ? relayStatus.detail : '';
+  }
+  city?.update(rows, relayStatus);
   if (selectedAgent && rows.get(selectedAgent)?.district !== selected) selectAgent(selectedAgent);
   else updateInspection();
 }
@@ -184,15 +204,18 @@ function updateConnectionLabel() {
 }
 
 function showDemo() {
-  clearInterval(demoInterval);
-  apply(demoSnapshot);
-  let showSignal = true;
-  if (!reducedMotion.matches) {
-    demoInterval = setInterval(() => {
-      apply(showSignal ? demoSignal : demoSnapshot);
-      showSignal = !showSignal;
-    }, 16500);
+  clearTimeout(demoInterval);
+  const stages = [
+    ['receiving', 'Задание приходит в Эмпайр-стейт-билдинг', demoSnapshot, 4600],
+    ['working', 'Агенты забрали задание в штабе', demoSnapshot, 10500],
+    ['returning', 'Reporter вернул результат в штаб', demoSignal, 5500],
+  ];
+  function play(index) {
+    const [stage, detail, snapshot, duration] = stages[index];
+    apply({ ...snapshot, relay: { stage, detail, project: 'dev', updatedAt: new Date().toISOString() } });
+    if (!reducedMotion.matches) demoInterval = setTimeout(() => play((index + 1) % stages.length), duration);
   }
+  play(0);
 }
 
 function acceptLive(state) {
@@ -201,7 +224,7 @@ function acceptLive(state) {
   connecting = false;
   liveFailure = false;
   if (!forcedDemo) {
-    clearInterval(demoInterval);
+    clearTimeout(demoInterval);
     apply(state);
   }
   updateConnectionLabel();
@@ -291,11 +314,11 @@ function toggleDemo() {
   forcedDemo = !forcedDemo;
   elements.demo.setAttribute('aria-pressed', String(forcedDemo));
   elements.demoLabel.textContent = forcedDemo ? 'Рабочий режим' : 'Демо-режим (Экшн)';
-  clearInterval(demoInterval);
+  clearTimeout(demoInterval);
   if (forcedDemo) {
     apply({ agents: {} });
     showDemo();
-    selectDistrict('moex');
+    selectDistrict(null);
   } else if (liveData) {
     apply(liveData);
   } else {
@@ -316,14 +339,15 @@ elements.taskForm.addEventListener('submit', async event => {
   if (submitting) return;
   const task = elements.taskText.value.trim();
   const project = elements.taskProject.value;
+  const sendFiles = elements.sendFiles.checked;
   elements.taskMessage.hidden = false;
   if (!task) {
     elements.taskMessage.textContent = 'Опишите задание.';
     elements.taskText.focus();
     return;
   }
-  if (taskRequest?.task !== task || taskRequest?.project !== project) {
-    taskRequest = { requestId: crypto.randomUUID(), project, task };
+  if (taskRequest?.task !== task || taskRequest?.project !== project || taskRequest?.sendFiles !== sendFiles) {
+    taskRequest = { requestId: crypto.randomUUID(), project, task, sendFiles };
   }
   submitting = true;
   elements.submitTask.disabled = true;
@@ -344,6 +368,7 @@ elements.taskForm.addEventListener('submit', async event => {
     elements.taskReceipt.textContent = 'Задание запущено · ' + result.label + '. Отчёт появится в чате.';
     elements.taskReceipt.hidden = false;
     elements.taskText.value = '';
+    elements.sendFiles.checked = false;
     elements.taskMessage.hidden = true;
     taskRequest = undefined;
     elements.dialog.close();
@@ -370,7 +395,7 @@ connect();
 Promise.all([import('three'), import('three/addons/controls/OrbitControls.js')])
   .then(([THREE, { OrbitControls }]) => {
     city = createCity(THREE, OrbitControls);
-    city.update(rows);
+    city.update(rows, relayStatus);
     if (selected) selectDistrict(selected, selectedAgent);
   })
   .catch(() => {
@@ -1084,12 +1109,12 @@ function createCity(THREE, OrbitControls) {
     const hq = buildings.get('hq');
     if (elapsed < .92) {
       const progress = elapsed / .92;
-      target.copy(agent.launch).lerp(V(hq.x, 6.8 + agent.index * .38, hq.z + 1.9), progress);
+      target.copy(agent.launch).lerp(V(hq.x, hq.height + .5 + agent.index * .28, hq.z + 1.5), progress);
       target.y += Math.sin(progress * Math.PI) * 1.8;
     } else {
       const progress = Math.min((elapsed - .92) / 1.62, 1);
       const end = positionInside(agent, destination, agent.started + 2.54);
-      target.set(hq.x, 6.8 + agent.index * .38, hq.z + 1.9).lerp(end, progress);
+      target.set(hq.x, hq.height + .5 + agent.index * .28, hq.z + 1.5).lerp(end, progress);
       target.y += Math.sin(progress * Math.PI) * 2.7;
     }
   }
@@ -1100,19 +1125,19 @@ function createCity(THREE, OrbitControls) {
     packets.visible = route.visible = showing;
     if (!showing) return;
     const hub = buildings.get('hq');
-    const endY = destination.height * .64;
+    const endY = destination.height + .65;
     const positions = packets.geometry.attributes.position;
     for (let index = 0; index < positions.count; index++) {
       const t = (time * .44 + index * .13 + agent.index * .19) % 1;
       positions.setXYZ(index,
         THREE.MathUtils.lerp(hub.x, destination.x, t),
-        THREE.MathUtils.lerp(7.75, endY, t) + Math.sin(t * Math.PI) * 1.9 + .17 * agent.index,
+        THREE.MathUtils.lerp(hub.height + .6, endY, t) + Math.sin(t * Math.PI) * 1.9 + .17 * agent.index,
         THREE.MathUtils.lerp(hub.z, destination.z, t),
       );
     }
     positions.needsUpdate = true;
     const wire = route.geometry.attributes.position;
-    wire.setXYZ(0, hub.x, 7.75 + .11 * agent.index, hub.z);
+    wire.setXYZ(0, hub.x, hub.height + .6 + .11 * agent.index, hub.z);
     wire.setXYZ(1, destination.x, endY + .11 * agent.index, destination.z);
     wire.needsUpdate = true;
   }
@@ -1137,6 +1162,63 @@ function createCity(THREE, OrbitControls) {
   }
 
   for (const [index, profile] of profiles.entries()) agents.push(createDrone(profile, index));
+
+  const empire = buildings.get('hq');
+  const rooftop = V(empire.x, empire.height + .38, empire.z);
+  const orbit = V(empire.x + 3.15, empire.height + 10.6, empire.z - 1.95);
+  const satellite = new THREE.Group();
+  satellite.position.copy(orbit);
+  satellite.scale.setScalar(1.38);
+  scene.add(satellite);
+  box(satellite, paint(0x8ca8d8), 0, 0, 0, 1.08, .45, .61);
+  for (const side of [-1, 1]) {
+    box(satellite, paint(0x5ca9ff, true), side * 1.23, 0, 0, 1.47, .06, .52);
+    for (const line of [-.25, 0, .25]) box(satellite, paint(0x214271, true), side * 1.23 + line, .042, 0, .04, .025, .54);
+  }
+  ring(satellite, paint(0x68ddfc, true), 0, .34, 0, .5, .035);
+  const beamMaterial = new THREE.MeshBasicMaterial({ color: 0x72dfff, depthWrite: false, transparent: true, opacity: .32 });
+  const orbitalBeam = rod(scene, beamMaterial, rooftop, orbit, .165);
+  const pulse = new THREE.Mesh(new THREE.IcosahedronGeometry(.46, 1), paint(0x83e9ff, true));
+  const outputPulse = new THREE.Mesh(new THREE.IcosahedronGeometry(.38, 1), paint(0xe6a5ff, true));
+  scene.add(pulse, outputPulse);
+  let activeRelay;
+  let relayKey;
+  let relayStarted = 0;
+  const reporter = agents.find(agent => agent.profile.id === 'reporter');
+  const returnStart = V();
+
+  function armRelay(next, clock) {
+    const key = next ? next.stage + String(next.updatedAt ?? '') : '';
+    if (key === relayKey) return;
+    const alreadyReturning = activeRelay?.stage === 'returning' && next?.stage === 'sent';
+    if (!alreadyReturning) {
+      const age = next?.stage === 'sent' ? Math.max(0, (Date.now() - Date.parse(next.updatedAt)) / 1000) : 0;
+      relayStarted = clock - (Number.isFinite(age) ? age : 0);
+      if (next?.stage === 'returning' || next?.stage === 'sent') returnStart.copy(reporter.group.position);
+    }
+    activeRelay = next;
+    relayKey = key;
+  }
+
+  function updateOrbital(time) {
+    const visible = !focusId;
+    const elapsed = Math.max(0, time - relayStarted);
+    const receiving = activeRelay?.stage === 'receiving';
+    const returning = (activeRelay?.stage === 'returning' || activeRelay?.stage === 'sent') && elapsed < 6.2;
+    const outgoing = returning && (elapsed >= 1.7 || reducedMotion.matches);
+    satellite.visible = visible;
+    if (!reducedMotion.matches) satellite.rotation.y = Math.sin(time * .82) * .44;
+    orbitalBeam.visible = visible && (receiving || outgoing);
+    pulse.visible = visible && receiving;
+    outputPulse.visible = visible && outgoing;
+    if (orbitalBeam.visible) {
+      beamMaterial.color.set(outgoing ? 0xe39aff : 0x72dfff);
+      beamMaterial.opacity = reducedMotion.matches ? .44 : .30 + .18 * Math.sin(time * 8) ** 2;
+    }
+    if (pulse.visible) pulse.position.copy(orbit).lerp(rooftop, reducedMotion.matches ? .52 : (elapsed * .65) % 1);
+    if (outputPulse.visible) outputPulse.position.copy(rooftop).lerp(orbit, reducedMotion.matches ? .52 : ((elapsed - 1.7) * .62) % 1);
+    return returning && visible ? elapsed : null;
+  }
 
   const ray = new THREE.Raycaster();
   const coordinates = new THREE.Vector2();
@@ -1296,9 +1378,11 @@ function createCity(THREE, OrbitControls) {
     for (const [id, building] of buildings) {
       const { marker, activity } = building;
       screenPoint.set(building.x, building.height + .68, building.z).project(camera);
-      const x = (screenPoint.x + 1) * width / 2;
-      const y = (1 - screenPoint.y) * height / 2;
-      const visible = !focusId && x > 32 && x < width - 32 && y > 62 && y < height * .78;
+      const narrow = width < 590;
+      const x = (screenPoint.x + 1) * width / 2 - (narrow && id === 'moex' ? 25 : 0);
+      const y = (1 - screenPoint.y) * height / 2 + (narrow && id === 'hq' ? 16 : 0);
+      const coversRelay = id === 'hq' && orbitalBeam.visible;
+      const visible = !focusId && !coversRelay && x > 32 && x < width - 32 && y > 57 && y < height * .78;
       if (building.visible !== visible) {
         building.visible = visible;
         marker.hidden = !visible;
@@ -1313,8 +1397,9 @@ function createCity(THREE, OrbitControls) {
     }
   }
 
-  function update(data) {
+  function update(data, relay) {
     const clock = performance.now() / 1000;
+    armRelay(relay, clock);
     for (const agent of agents) {
       const next = data.get(agent.profile.id) ?? empty;
       if (agent.row.district !== next.district || agent.row.action !== next.action) {
@@ -1349,6 +1434,7 @@ function createCity(THREE, OrbitControls) {
     updateTicker(visualTime);
     updateRadar(visualTime);
     updateWater(visualTime);
+    const returning = updateOrbital(time);
     for (const [, building] of buildings) setWallFade(building, delta);
     for (const agent of agents) {
       const building = buildings.get(agent.row.district);
@@ -1374,6 +1460,13 @@ function createCity(THREE, OrbitControls) {
       }
       effects(agent, building, visualTime, active && !flying && focusId === building.id);
       updatePackets(agent, building, visualTime, active && !focusId);
+      if (agent === reporter && returning !== null) {
+        const progress = reducedMotion.matches ? 1 : Math.min(returning / 1.7, 1);
+        agent.group.position.copy(returnStart).lerp(rooftop, progress);
+        agent.group.position.y += Math.sin(progress * Math.PI) * 2.1;
+        agent.group.visible = true;
+        agent.folder.visible = true;
+      }
     }
     selectionRing.visible = Boolean(follower?.group.visible);
     if (selectionRing.visible) {

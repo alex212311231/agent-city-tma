@@ -5,7 +5,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
   <meta name="theme-color" content="#080e20">
   <title>Город агентов</title>
-  <link rel="stylesheet" href="./office.css?v=3473c388d5a9">
+  <link rel="stylesheet" href="./office.css?v=1ce81d6a4f0a">
   <script type="importmap">
     {
       "imports": {
@@ -16,7 +16,7 @@
   </script>
   <script defer src="https://telegram.org/js/telegram-web-app.js"></script>
   <script defer src="./config.js"></script>
-  <script defer src="./office.js?v=fe6ab12b5363"></script>
+  <script defer src="./office.js?v=37dc79c28546"></script>
 </head>
 <body>
   <main class="app" id="app">
@@ -68,6 +68,9 @@
           <div><strong id="inspection-agent"></strong> <span id="inspection-action"></span><p id="inspection-detail"></p></div>
           <button id="district-view" class="outline-button" type="button">Вид этажа</button>
         </div>
+        <div id="orbital-status" class="orbital-status" role="status" hidden>
+          <strong id="orbital-stage"></strong><span id="orbital-detail"></span>
+        </div>
         <p id="task-receipt" class="task-receipt" role="status" hidden></p>
         <div id="agents" class="agents"></div>
         <div id="job-status" class="job-status" aria-label="Фоновые задачи" hidden></div>
@@ -89,6 +92,7 @@
       </select>
       <label for="task-text">Что нужно сделать</label>
       <textarea id="task-text" name="task" rows="5" maxlength="6000" required></textarea>
+      <label class="send-files"><input id="send-files" type="checkbox"> Прислать готовые файлы в Telegram</label>
       <p id="task-message" role="status" hidden></p>
       <button id="submit-task" class="primary-button" type="submit">Запустить</button>
     </form>
