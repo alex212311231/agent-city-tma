@@ -53,17 +53,7 @@ export function streets(THREE,scene,navigation,bounds,assets) {
     return {track,model,speed:7.9+(index%3)*.39,start:(index*19.1)%145};
   });
 
-  const walks=[[-84,-42],[-42,-42],[0,-42],[-42,0],[0,0],[42,0],[0,42]];
-  const sidewalk=6.74;
-  const walkers=walks.flatMap(([x,z],ring)=>Array.from({length:4},(_,i)=>{
-    const model=new THREE.Group();
-    scene.add(model);
-    const rig=assets.character(model,i+ring,1.61+(i%3)*.07);
-    return {track:rectangle(x,z,42,sidewalk),speed:1.19+.12*((ring+i)%4),start:i*33.9+ring*6.2,model,rig};
-  }));
-
-  let frameNumber=0;
-  function update(time,dt,motion,camera){
+  function update(time,dt,motion){
     const elapsed=motion?time:0;
     for(const {track,model,speed,start} of vehicles){
       along(track,(start+elapsed*speed)%(4*(42-3.44)),frame);
@@ -71,14 +61,6 @@ export function streets(THREE,scene,navigation,bounds,assets) {
       model.rotation.y=frame.yaw;
       if(motion)for(const wheel of model.userData.wheels??[])wheel.rotateX(speed*dt/.35);
     }
-    for(const [i,{track,model,rig,speed,start}] of walkers.entries()){
-      along(track,(start+elapsed*speed)%(4*(42-2*sidewalk)),frame);
-      model.position.set(frame.x,navigation.sidewalkHeight,frame.z);
-      model.rotation.y=frame.yaw;
-      const near=camera.position.distanceToSquared(model.position)<10000;
-      if(near||(frameNumber+i)%4===0)rig.update(motion?dt*(near?1:4):0,motion?'walk':'idle',speed);
-    }
-    frameNumber++;
   }
   return { update };
 }

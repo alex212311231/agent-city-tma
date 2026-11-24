@@ -70,7 +70,6 @@ export function buildOffice(THREE,plot,displays,assets){
   const faces=[];
   const dashboards=[];
   const rackLights=[];
-  const crew=[];
   const facing=plot.facing;
   const front=shaft.z+facing*shaft.d/2;
   const yaw=facing===1?0:Math.PI;
@@ -81,7 +80,6 @@ export function buildOffice(THREE,plot,displays,assets){
   let activity='idle';
   let model={};
   let previous;
-  let started=0;
   let selected=null;
   let visiblePreviously=false;
 
@@ -298,46 +296,30 @@ export function buildOffice(THREE,plot,displays,assets){
     block(shaftView,'ink',shaft.x,level+3.53,front,shaft.w,1.84,.072);
   }
   const shaftFront=worldBox(shaft.x,shaftHeight/2,front,shaft.w,shaftHeight,.13);
-  let lift={at:0,target:0,y:floors[0],moving:false,age:0,lastPlayer:-Infinity};
+  let lift={at:0,target:0,y:floors[0],moving:false,age:0};
 
-  function person(index){
-    const actor=group(root);
-    const rig=assets.character(actor,index,1.69+(index%3)*.04);
-    const paper=block(rig.hands,new THREE.MeshBasicMaterial({color:0x8be8ff}),0,-.035,.08,.29,.060,.24);
-    const cup=new THREE.Mesh(new THREE.CylinderGeometry(.058,.042,.113,16),color('cream'));
-    cup.position.set(0,.045,.07);
-    rig.hands.add(cup);
-    const packet=block(rig.hands,new THREE.MeshBasicMaterial({color:0xffcf77}),0,-.086,.08,.265,.21,.22);
-    paper.visible=cup.visible=packet.visible=false;
-    const labelOffsets=[[-.60,2.63],[1.03,2.31],[.77,2.98],[-1.07,2.25],[.0,2.73]];
-    return {index,actor,rig,paper,cup,packet,
-      bubble:bubble(THREE,actor,labelOffsets[index][1],labelOffsets[index][0])};
-  }
-  for(let i=0;i<5;i++)crew.push(person(i));
-  let courier={mode:'idle',since:0,target:0};
   const onLift=(x,z)=>Math.abs(x-shaft.x)<shaft.w/2-.13&&Math.abs(z-shaft.z)<shaft.d/2-.12;
   const outsideFront=(x,z)=>Math.abs(x-shaft.x)<2.15&&Math.abs(z-front)<2.0;
   const local=(position)=>[position.x-plot.x,position.z-plot.z];
   const floorOf=feet=>Math.max(0,Math.min(2,Math.round((feet-floors[0])/(floors[1]-floors[0]))));
 
-  function shift(target,time,player){
+  function shift(target){
     if(lift.moving||target===lift.at)return;
     lift.target=target;lift.moving=true;lift.age=0;
-    if(player)lift.lastPlayer=time;
   }
   function info(position,feet){
     const [x,z]=local(position);
     if(!outsideFront(x,z)&&!onLift(x,z))return null;
     return {inside:onLift(x,z),floor:floorOf(feet),at:lift.at,moving:lift.moving};
   }
-  function request(position,feet,next,time){
+  function request(position,feet,next){
     const current=info(position,feet);
     if(!current||lift.moving)return false;
     if(next===null){
       if(current.inside||lift.at===current.floor)return false;
-      shift(current.floor,time,true);
+      shift(current.floor);
     }
-    else if(current.inside&&Number.isInteger(next)&&next>=0&&next<floors.length)shift(next,time,true);
+    else if(current.inside&&Number.isInteger(next)&&next>=0&&next<floors.length)shift(next);
     else return false;
     return true;
   }
@@ -351,15 +333,11 @@ export function buildOffice(THREE,plot,displays,assets){
     if(!lift.moving&&lift.at===index&&lift.age>=.23)return solid;
     return [...solid,shaftFront];
   }
-  function set(next,time){
+  function set(next){
     const key=[next.activity,next.title,next.subject,next.test_result,next.test_count,next.code_snippet,next.current_log].join('\u001f');
     if(key===previous)return;
     previous=key;
-    if(next.activity!==activity){
-      activity=stages[next.activity]?next.activity:'idle';
-      started=time;
-      courier={mode:'idle',since:time,target:stages[activity].level};
-    }
+    activity=stages[next.activity]?next.activity:'idle';
     model=next;
   }
   function show(walking,focus,chosen,position){
@@ -373,61 +351,31 @@ export function buildOffice(THREE,plot,displays,assets){
     });
   }
 
-  const placements={
-    idle:[[7.6,4.8],[5.6,4.9],[6.54,5.76],[-2.3,-3.8],[3.2,-3.6]],
-    read_files:[[-3.7,-4.85],[-.7,-4.8],[3.2,1.1],[5.9,1.6],[-2.5,.4]],
-    write_code:[[2.35,-1.31],[3.30,-1.39],[5.25,-1.02],[-2.4,5.09],[.48,1.84]],
-    run_tests:[[6.28,-4.57],[8.19,-4.54],[7.22,-3.41],[5.15,-3.57],[8.21,-2.88]],
-    error:[[6.28,-4.57],[8.19,-4.54],[7.22,-3.47],[5.02,-3.59],[8.19,-2.88]],
-    deploy_report:[[2.35,-.47],[4.2,1.26],[6.4,-3.4],[-2.3,2.7],[-3.6,3.7]],
-  };
-  const courierSpawn=shaft.x;
-  function ride(actor,time,motion,playerNear){
-    if(activity==='idle'||!motion||(playerNear||time-lift.lastPlayer<8)&&courier.mode==='idle'){
-      courier={mode:'idle',since:time,target:stages[activity].level};
-      return false;
-    }
-    const outbound=activity==='deploy_report';
-    const target=outbound?0:stages[activity].level;
-    const wait=3.5+(plot.col+plot.row)%3;
-    if(courier.mode==='idle'&&time-courier.since>wait){
-      courier={mode:'approach',since:time,target,origin:outbound?2:0};
-    }
-    if(courier.mode==='idle')return false;
-    const outside=front+1.36*facing;
-    const actorY=floors[courier.origin];
-    let x=courierSpawn,z=outside,y=actorY;
-    if(courier.mode==='approach'){
-      const p=Math.min(1,(time-courier.since)/(outbound?2.7:2.1));
-      if(outbound){
-        const approach=Math.min(1,p/.60);
-        if(p<.60){
-          x=-2.22;
-          z=1.25*facing+(outside-1.25*facing)*approach;
-        }else x=-2.22+(courierSpawn+2.22)*((p-.60)/.40);
-      }else x=-2.45+(courierSpawn+2.45)*p;
-      if(p===1){
-        if(!lift.moving&&lift.at!==courier.origin)shift(courier.origin,time,false);
-        if(!lift.moving&&lift.at===courier.origin&&lift.age>.33)Object.assign(courier,{mode:'board',since:time});
-      }
-    }else if(courier.mode==='board'){
-      const p=Math.min(1,(time-courier.since)/1.4);
-      z=outside+(shaft.z-outside)*p;
-      if(p===1){shift(target,time,false);Object.assign(courier,{mode:'ride',since:time});}
-    }else if(courier.mode==='ride'){
-      z=shaft.z;y=lift.y;
-      if(!lift.moving&&lift.at===target&&lift.age>.35)Object.assign(courier,{mode:'leave',since:time});
-    }else{
-      const p=Math.min(1,(time-courier.since)/1.55);
-      z=shaft.z+(outside-shaft.z)*p;
-      y=floors[target];
-      if(p===1)courier={mode:'idle',since:time,target};
-    }
-    actor.actor.position.set(x,y,z);
-    return true;
+  const seats=[
+    [2.35,-1.30], [5.25,-.99], [-2.4,5.10], [5,4.60],
+  ];
+  const archive=[[-3.7,-4.88],[-.8,-4.88],[1.0,-4.43],[1.0,1.35],[3.81,1.10]];
+  const server=[ [6.15,-4.35],[7.36,-4.33],[8.58,-4.32],[6.58,-3.21],[8.14,-3.23] ];
+  const lobby=[[4.8,-2.39],[6.12,-2.54],[2.05,-2.15],[4.50,.80],[2.1,2.35]];
+  const rest=[[2.45,1],[1.18,1.0],[2.58,2.02],[.9,2.27],[3.72,2.1]];
+
+  function station(action,slot=0){
+    const level=stages[action]?.level??0;
+    const writing=action==='write_code'&&slot<seats.length;
+    const testing=action==='run_tests'||action==='error';
+    const files=action==='read_files';
+    const reporting=action==='deploy_report';
+    const [x,z]=(writing?seats:testing?server:files?archive:reporting?lobby:rest)[slot%5];
+    const rotation=writing||testing||files?yaw+Math.PI:yaw+Math.PI*.17;
+    return {
+      point:new THREE.Vector3(plot.x+x,floors[level],plot.z+z*facing),
+      rotation,
+      mode:writing?'typing':testing?'gesture':reporting?'carry':'idle',
+      level,
+    };
   }
 
-  function update(time,dt,motion,player){
+  function update(time,dt,motion){
     lift.age+=dt;
     if(lift.moving){
       const delta=floors[lift.target]-lift.y;
@@ -442,72 +390,21 @@ export function buildOffice(THREE,plot,displays,assets){
     doors.forEach((door,i)=>{door.position.x=(i?1:-1)*(.734+.65*openness);door.visible=openness<.96;});
     if(!root.visible)return;
     incident.visible=activity==='error';
-    const elapsed=motion?time-started:0;
-    const target=stages[activity].level;
-    const nearby=player&&Math.abs(player.x-plot.x-shaft.x)<3&&Math.abs(player.z-plot.z-shaft.z)<3.7;
+    const elapsed=motion?time:0;
     for(const paint of rackLights){
       paint.emissive.setHex(activity==='error'?0xfb3451:model.test_result==='success'?0x62ec74:0x65bce4);
       paint.emissiveIntensity=activity==='error'||activity==='run_tests'?1.5+1.5*Math.cos(elapsed*4.7)**2:1.1;
     }
-    for(const npc of crew){
-      const {index,actor}=npc;
-      const riding=index===4&&ride(npc,time,motion,nearby);
-      let walking=false;
-      let typing=false;
-      npc.paper.visible=false;
-      npc.cup.visible=activity==='idle'&&index<3||activity==='write_code'&&index===1;
-      npc.packet.visible=activity==='deploy_report'&&(index===4||index===0);
-      if(!riding){
-        let [x,z]=placements[activity][index];
-        let level=target;
-        if(activity==='deploy_report'&&index===4){x=-2.22;z=1.25;}
-        if(activity==='read_files'&&index<2){
-          const p=(elapsed*.24+index*.38)%1;
-          const lane=p<.12?0:p<.5?(p-.12)/.38:p<.62?1:1-(p-.62)/.38;
-          const dx=-2.70+index*2.72-x;
-          const dz=1.1-z;
-          x=x+dx*lane;
-          z=z+(1.1-z)*lane;
-          npc.paper.visible=p>=.11&&p<.62;
-          walking=p>.12&&p<.5||p>.62;
-          actor.rotation.y=Math.atan2(dx,dz*facing)+(p>.62?Math.PI:0);
-        }
-        actor.position.set(x,floors[level],facing*z);
-        typing=activity==='write_code'&&[0,2,3].includes(index);
-        if(activity!=='read_files'||index>=2)actor.rotation.y=typing?yaw+Math.PI:yaw+(index%2?-.62:.24);
-      }else{
-        walking=courier.mode!=='ride';
-        actor.rotation.y=courier.mode==='approach'?-Math.PI/2:yaw+(courier.mode==='board'?Math.PI:0);
-      }
-      actor.visible=selected===null||Math.abs(actor.position.y-floors[selected])<.22;
-      const carrying=npc.paper.visible||npc.packet.visible||npc.cup.visible;
-      const mode=typing?'typing':walking?(carrying?'carry-walk':'walk'):carrying?'carry':
-        activity==='error'||activity==='run_tests'?'gesture':'idle';
-      const close=player&&Math.hypot(player.x-plot.x-actor.position.x,player.z-plot.z-actor.position.z)<3.3;
-      npc.bubble.near(close);
-      if(actor.visible)npc.rig.update(motion?dt:0,mode,1.55,elapsed);
-    }
+
   }
 
   function textures(){
-    const subject=(model.subject??'').slice(0,37);
-    const words={
-      read_files:['📂 Несёт '+(subject||'папку'),'📂 Ищет в архиве','Сверяет файлы','Проверяет список','Едет в архив'],
-      write_code:['⌨️ Кодит '+(subject||'задачу'),'☕ Смотрит код','Пишет изменения','Сверяет diff','Едет в офис'],
-      run_tests:[model.test_count==null?'🧪 Запускает тесты':'🧪 Проверки: '+model.test_count,
-        model.test_result==='success'?'✅ Тесты прошли':'Смотрит сборку','Проверяет стойку','Сверяет результаты','Едет на проверку'],
-      deploy_report:['📦 Собирает отчёт','Готовит публикацию','Сверяет результат','Проверяет пакет','📦 Несёт отчёт'],
-      error:['⚠ Разбирает ошибку','Смотрит журнал','Уточняет сбой','Обсуждает исправление','Едет на разбор'],
-      idle:['☕ Пьёт кофе','Перерыв','У кулера','Обсуждают планы','Ожидает задачу'],
-    }[activity];
-    const accent=activity==='error'?'#f87886':activity==='run_tests'&&model.test_result==='success'?'#a2f881':'#8ad7ff';
-    crew.forEach((npc,i)=>npc.bubble.show(words[i],accent));
     for(const {index,board} of dashboards)board.show(index===stages[activity].level?activity:'idle',model,index+1);
     for(const {index,display} of faces){
       const chosen=index===stages[activity].level;
       display.show(chosen?(model.title||stages[activity].label):'',chosen?model:undefined);
     }
   }
-  return { plot, root, floors, set, show, collision, walkHeights, info, request, update, textures,
+  return { plot, root, floors, set, show, collision, walkHeights, info, request, update, textures,station,
     get activity(){return activity;}, get floor(){return stages[activity].level;}, get level(){return lift.at;} };
 }

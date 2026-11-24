@@ -47,7 +47,7 @@ const districts = {
   moex: { name: 'MOEX Tower', label: 'MOEX', description: 'Биржевые терминалы и табло котировок.', color: '#71d9ff' },
   grants: { name: 'Grant Radar', label: 'Радар', description: 'Мониторинг публикаций и работа со списками.', color: '#fc98c5' },
   dev: { name: 'Dev Lab', label: 'Dev Lab', description: 'Рабочие столы разработчиков и мониторы проверок.', color: '#8be8d4' },
-  lounge: { name: 'Зимний сквер', label: 'Сквер', description: 'Ёлка и пешеходная площадка у Таймс-сквер.', color: '#a7dbc4' },
+  lounge: { name: 'Дома агентов', label: 'Дома', description: 'Пять таунхаусов у зимнего сквера. Когда начинается работа, агенты выходят к штабу.', color: '#a7dbc4' },
 };
 
 const actionNames = {
@@ -71,6 +71,13 @@ const profiles = [
   { id: 'job-moex', title: 'Сбор MOEX', color: '#72aaff', job: 'moex' },
   { id: 'job-grants', title: 'Радар грантов', color: '#67f5b0', job: 'grants' },
 ];
+
+for (const profile of profiles.filter(profile => !profile.job)) {
+  districts['home-'+profile.id] = {
+    name: 'Дом · '+profile.title, label: 'Дома', color: profile.color,
+    description: 'Когда агент получает задачу, он выходит из дома и направляется к штабу.',
+  };
+}
 
 const empty = { action: 'idle', district: 'lounge', detail: '', files: [] };
 const orbitalLabels = {
@@ -149,18 +156,19 @@ function normalize(row, profile) {
   const action = Object.hasOwn(actionNames, row?.action) ? row.action : oldAction;
   const project = ['moex', 'grants', 'dev'].includes(row?.project) ? row.project : profile.job;
   const legacyActivity={ folders:'read_files',coding:'write_code',testing:'run_tests',reporting:'deploy_report',idle:'idle' };
-  const activity=row?.activity??(row?.phase==='blocked'?'error':legacyActivity[action]);
-  const district = activity==='idle' ? 'lounge' : profile.id === 'lead' ? 'hq' : (project ?? 'dev');
+  const activity=row?.phase==='blocked'?'error':row?.activity??legacyActivity[action];
+  const district = activity==='idle' ? (profile.job?'lounge':'home-'+profile.id) : profile.id === 'lead' ? 'hq' : (project ?? 'dev');
+  const detail=typeof row?.detail==='string'?row.detail:'';
   return {
     action, district, activity,
     phase: row?.phase,
-    detail: typeof row?.detail === 'string' ? row.detail : '',
+    detail: activity==='idle'&&detail==='Нужна помощь'?'':detail,
     files: Array.isArray(row?.files) ? row.files.filter(file => typeof file === 'string').slice(0, 8) : [],
   };
 }
 
 function stateLabel(row) {
-  return row.phase === 'blocked' ? 'Нужна помощь' : actionNames[row.action];
+  return row.activity==='error' ? 'Нужна помощь' : actionNames[row.action];
 }
 
 function apply(snapshot, snap = false) {
@@ -172,6 +180,7 @@ function apply(snapshot, snap = false) {
   for (const [id, card] of cards) {
     const row = rows.get(id);
     card.action.textContent = stateLabel(row);
+    card.follow.textContent = row.activity==='idle' ? 'К дому' : 'К агенту';
     card.detail.textContent = row.detail || districts[row.district].label;
     const filesKey = JSON.stringify(row.files);
     if (card.filesKey !== filesKey) {
@@ -229,7 +238,7 @@ const examples={
   run_tests:{title:'QA',subject:'tests',detail:'Тесты прошли',test_count:529,test_result:'success',current_log:'# tests 529\n# pass 529'},
   error:{title:'QA',subject:'tests/test_parser.py',detail:'Разбирает сбой теста',test_count:529,test_result:'failure',current_log:'# tests 529\n# fail 1'},
   deploy_report:{title:'Reporter',subject:'Отчёт в Telegram',detail:'Передаёт результат в штаб'},
-  idle:{title:'Команда',detail:'Отдыхает в лаунже'},
+  idle:{title:'Команда',detail:'Агент возвращается домой'},
 };
 function showDemo() {
   clearTimeout(demoInterval);
@@ -335,7 +344,7 @@ function showDistrict(id, agentId) {
   if (id) {
     const district = districts[id];
     elements.panel.style.setProperty('--district-color', district.color);
-    elements.panelMode.textContent = agentId ? 'Камера агента' : id === 'lounge' ? 'Сквер' : 'Интерьер';
+    elements.panelMode.textContent = agentId ? 'Камера агента' : id === 'lounge' || id.startsWith('home-') ? 'Жилой квартал' : 'Интерьер';
     elements.panelName.textContent = district.name;
     elements.panelText.textContent = district.description;
   }
@@ -431,7 +440,7 @@ const board = document.getElementById('board');
 const settings = document.getElementById('settings-dialog');
 const musicButton = document.getElementById('music-toggle');
 const field = Object.fromEntries(['light', 'transport', 'snow', 'music', 'volume'].map(id => [id, document.getElementById(id)]));
-const defaults = Object.freeze({ light: 'day', transport: 'mixed', snow: true, volume: 30 });
+const defaults = Object.freeze({ light: 'dusk', transport: 'mixed', snow: true, volume: 30 });
 const storageKey = 'ai-hub-winter-v1';
 let townOptions = { ...defaults };
 let drag;

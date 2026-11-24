@@ -94,10 +94,8 @@ export function createAssets(renderer, scene) {
   environmentAssets.push(loadAsset('urban-dusk.hdr',url=>hdrLoader.loadAsync(url)).then(hdr => {
     hdr.mapping = THREE.EquirectangularReflectionMapping;
     scene.environment = hdr;
-    scene.background = hdr;
-    scene.backgroundBlurriness = .36;
-    scene.environmentRotation.y = scene.backgroundRotation.y = .72;
-  }).catch(()=>console.warn('Город использует резервный свет и фон. HDRI недоступна.')));
+    scene.environmentRotation.y = .72;
+  }).catch(()=>console.warn('Город использует резервное освещение. HDRI недоступна.')));
 
   function place(parent, name, { x = 0, y = 0, z = 0, yaw = 0, height, width, depth, onReady } = {}) {
     const group = new THREE.Group();
