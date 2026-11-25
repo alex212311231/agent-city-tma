@@ -1,632 +1,301 @@
 'use strict';
 
-const telegram = window.Telegram?.WebApp;
-telegram?.ready();
-telegram?.expand();
-if (telegram?.isVersionAtLeast?.('7.7')) telegram.disableVerticalSwipes?.();
-
-const elements = {
-  app: document.querySelector('#app'),
-  world: document.querySelector('#world'),
-  canvas: document.querySelector('#city'),
-  markers: document.querySelector('#markers'),
-  status: document.querySelector('#connection'),
-  note: document.querySelector('#note'),
-  agents: document.querySelector('#agents'),
-  jobs: document.querySelector('#job-status'),
-  demo: document.querySelector('#demo'),
-  demoLabel: document.querySelector('#demo-label'),
-  panel: document.querySelector('#district'),
-  panelMode: document.querySelector('#district-mode'),
-  panelName: document.querySelector('#district-name'),
-  panelText: document.querySelector('#district-description'),
-  overview: document.querySelector('#overview'),
-  help: document.querySelector('#world-help'),
-  inspection: document.querySelector('#agent-inspection'),
-  inspectionAgent: document.querySelector('#inspection-agent'),
-  inspectionAction: document.querySelector('#inspection-action'),
-  inspectionDetail: document.querySelector('#inspection-detail'),
-  districtView: document.querySelector('#district-view'),
-  newTask: document.querySelector('#new-task'),
-  dialog: document.querySelector('#task-dialog'),
-  taskForm: document.querySelector('#task-form'),
-  orbital: document.querySelector('#orbital-status'),
-  orbitalStage: document.querySelector('#orbital-stage'),
-  orbitalDetail: document.querySelector('#orbital-detail'),
-  taskProject: document.querySelector('#task-project'),
-  sendFiles: document.querySelector('#send-files'),
-  taskText: document.querySelector('#task-text'),
-  taskMessage: document.querySelector('#task-message'),
-  taskReceipt: document.querySelector('#task-receipt'),
-  closeTask: document.querySelector('#close-task'),
-  submitTask: document.querySelector('#submit-task'),
-};
-
-const districts = {
-  hq: { name: 'Эмпайр-стейт-билдинг', label: 'Эмпайр-стейт', description: 'Штаб AI Hub и приём заданий на Таймс-сквер.', color: '#f7cf8d' },
-  moex: { name: 'MOEX Tower', label: 'MOEX', description: 'Биржевые терминалы и табло котировок.', color: '#71d9ff' },
-  grants: { name: 'Grant Radar', label: 'Радар', description: 'Мониторинг публикаций и работа со списками.', color: '#fc98c5' },
-  dev: { name: 'Dev Lab', label: 'Dev Lab', description: 'Рабочие столы разработчиков и мониторы проверок.', color: '#8be8d4' },
-  lounge: { name: 'Дома агентов', label: 'Дома', description: 'Пять таунхаусов у зимнего сквера. Когда начинается работа, агенты выходят к штабу.', color: '#a7dbc4' },
-};
-
-const actionNames = {
-  folders: 'Работает с файлами',
-  coding: 'Пишет код',
-  testing: 'Проверяет',
-  reporting: 'Готовит отчёт',
-  idle: 'Ожидает',
-};
-const legacyActions = {
-  idle: 'idle', planning: 'folders', coding: 'coding',
-  testing: 'testing', reviewing: 'folders', reporting: 'reporting', blocked: 'folders',
-};
-
-const profiles = [
-  { id: 'coder', title: 'Coder', color: '#427868' },
-  { id: 'tester', title: 'QA', color: '#ad654f' },
-  { id: 'reporter', title: 'Reporter', color: '#795f8b' },
-  { id: 'lead', title: 'Тимлид', color: '#426898' },
-  { id: 'scout', title: 'Scout', color: '#a77a39' },
-  { id: 'job-moex', title: 'Сбор MOEX', color: '#72aaff', job: 'moex' },
-  { id: 'job-grants', title: 'Радар грантов', color: '#67f5b0', job: 'grants' },
-];
-
-for (const profile of profiles.filter(profile => !profile.job)) {
-  districts['home-'+profile.id] = {
-    name: 'Дом · '+profile.title, label: 'Дома', color: profile.color,
-    description: 'Когда агент получает задачу, он выходит из дома и направляется к штабу.',
-  };
-}
-
-const empty = { action: 'idle', district: 'lounge', detail: '', files: [] };
-const orbitalLabels = {
-  receiving: 'Космос → штаб',
-  working: 'Штаб → агенты',
-  returning: 'Штаб → космос',
-  sent: 'Результат доставлен',
-  blocked: 'Нужно внимание',
-};
-let relayStatus;
-let relayTimer;
-const reducedMotion = matchMedia('(prefers-reduced-motion: reduce)');
+const $ = (id) => document.getElementById(id);
+const botUrl = 'https://t.me/ClaudeNFications_bot';
 const local = location.origin === 'http://127.0.0.1:8765';
 const endpoint = local ? location.origin : window.OFFICE_CONFIG?.tunnel;
-const initData = telegram?.initData ?? '';
-const canConnect = Boolean(endpoint && (local || initData));
-const cards = new Map();
-const districtButtons = [...document.querySelectorAll('[data-district]')];
-let city;
-let displaySnapshot = {};
-const orbitButton = document.getElementById('orbit-mode');
-const demoControl=document.getElementById('demo-activity');
-const floorPicker=document.getElementById('floor-picker');
-const floorControl=document.getElementById('office-floor');
-const liftPanel=document.getElementById('lift-panel');
-const liftStatus=document.getElementById('lift-status');
-const liftCall=document.getElementById('lift-call');
-const liftButtons=[...liftPanel.querySelectorAll('[data-floor]')];
-floorControl.addEventListener('change',()=>city?.showFloor(floorControl.value));
-liftCall.addEventListener('click',()=>city?.liftRequest(null));
-for(const button of liftButtons)button.addEventListener('click',()=>city?.liftRequest(Number(button.dataset.floor)));
-document.addEventListener('keydown',event=>{
-  if(event.code==='KeyE'&&!liftPanel.hidden&&!liftCall.disabled)city?.liftRequest(null);
-});
-demoControl.addEventListener('change',()=>{ if(forcedDemo)showDemo(); });
-const walkButton = document.getElementById('walk-mode');
-orbitButton.addEventListener('click', () => city?.walk(false));
-walkButton.addEventListener('click', () => city?.walk(true));
-let selected;
-let selectedAgent;
-let rows = new Map();
-let socket;
-let reconnect;
-let liveData;
-let forcedDemo = false;
-let connecting = canConnect;
-let demoInterval;
-let liveFailure = false;
-let taskRequest;
-let submitting = false;
-
-elements.newTask.hidden = !initData || !endpoint;
-
-for (const profile of profiles.filter(profile => !profile.job)) {
-  const card = document.createElement('article');
-  card.className = 'agent';
-  card.style.setProperty('--agent-color', profile.color);
-  card.innerHTML = '<h3></h3><p></p><small></small><button class="agent-focus" type="button" aria-pressed="false">К агенту</button><details hidden><summary>Файлы</summary><div></div></details>';
-  card.querySelector('h3').textContent = profile.title;
-  elements.agents.append(card);
-  const follow = card.querySelector('.agent-focus');
-  follow.setAttribute('aria-label', 'К агенту ' + profile.title);
-  follow.addEventListener('click', () => selectAgent(profile.id));
-  cards.set(profile.id, {
-    follow,
-    action: card.querySelector('p'),
-    detail: card.querySelector('small'),
-    files: card.querySelector('details'),
-    filesList: card.querySelector('details div'),
-    filesKey: '',
-  });
-}
-
-function normalize(row, profile) {
-  const oldAction = Object.hasOwn(legacyActions, row?.phase) ? legacyActions[row.phase] : 'idle';
-  const action = Object.hasOwn(actionNames, row?.action) ? row.action : oldAction;
-  const project = ['moex', 'grants', 'dev'].includes(row?.project) ? row.project : profile.job;
-  const legacyActivity={ folders:'read_files',coding:'write_code',testing:'run_tests',reporting:'deploy_report',idle:'idle' };
-  const activity=row?.phase==='blocked'?'error':row?.activity??legacyActivity[action];
-  const district = activity==='idle' ? (profile.job?'lounge':'home-'+profile.id) : profile.id === 'lead' ? 'hq' : (project ?? 'dev');
-  const detail=typeof row?.detail==='string'?row.detail:'';
-  return {
-    action, district, activity,
-    phase: row?.phase,
-    detail: activity==='idle'&&detail==='Нужна помощь'?'':detail,
-    files: Array.isArray(row?.files) ? row.files.filter(file => typeof file === 'string').slice(0, 8) : [],
-  };
-}
-
-function stateLabel(row) {
-  return row.activity==='error' ? 'Нужна помощь' : actionNames[row.action];
-}
-
-function apply(snapshot, snap = false) {
-  displaySnapshot = snapshot;
-  rows = new Map(profiles.map(profile => [
-    profile.id,
-    normalize(profile.job ? snapshot.jobs?.[profile.job] : snapshot.agents?.[profile.id], profile),
-  ]));
-  for (const [id, card] of cards) {
-    const row = rows.get(id);
-    card.action.textContent = stateLabel(row);
-    card.follow.textContent = row.activity==='idle' ? 'К дому' : 'К агенту';
-    card.detail.textContent = row.detail || districts[row.district].label;
-    const filesKey = JSON.stringify(row.files);
-    if (card.filesKey !== filesKey) {
-      card.filesKey = filesKey;
-      card.files.hidden = row.files.length === 0;
-      card.filesList.replaceChildren(...row.files.map(file => {
-        const entry = document.createElement('code');
-        entry.textContent = file;
-        return entry;
-      }));
-    }
-  }
-  const jobs = profiles.filter(profile => profile.job && rows.get(profile.id).action !== 'idle');
-  elements.jobs.replaceChildren(...jobs.map(profile => {
-    const line = document.createElement('span');
-    const row = rows.get(profile.id);
-    line.textContent = profile.title + ' · ' + (row.detail || stateLabel(row));
-    return line;
-  }));
-  elements.jobs.hidden = !jobs.length;
-  const nextRelay = snapshot.relay;
-  const showRelay = nextRelay && Object.hasOwn(orbitalLabels, nextRelay.stage);
-  const terminal = ['sent', 'blocked'].includes(nextRelay?.stage);
-  const expiresIn = 90000 - (Date.now() - Date.parse(nextRelay?.updatedAt));
-  relayStatus = showRelay && (!terminal || expiresIn > 0) ? nextRelay : null;
-  clearTimeout(relayTimer);
-  if (relayStatus && terminal) {
-    relayTimer = setTimeout(() => { elements.orbital.hidden = true; }, expiresIn);
-  }
-  elements.orbital.hidden = !relayStatus;
-  if (relayStatus) {
-    elements.orbital.dataset.stage = relayStatus.stage;
-    elements.orbitalStage.textContent = orbitalLabels[relayStatus.stage];
-    elements.orbitalDetail.textContent = typeof relayStatus.detail === 'string' ? relayStatus.detail : '';
-  }
-  city?.update(rows, relayStatus, snap, displaySnapshot);
-  if (selectedAgent) showDistrict(rows.get(selectedAgent)?.district, selectedAgent);
-  else updateInspection();
-}
-
-function updateConnectionLabel() {
-  const mode = forcedDemo ? 'demo' : liveData ? 'live' : connecting ? 'connecting' : 'demo';
-  elements.status.dataset.mode = mode;
-  elements.status.textContent = mode === 'live' ? 'В эфире' : mode === 'connecting' ? 'Связь…' : 'Демо';
-  elements.note.textContent = forcedDemo ? 'Сценарий с активными агентами'
-    : mode === 'live' ? 'Статусы обновляются с рабочего ПК'
-      : connecting ? 'Подключаемся к рабочему ПК…'
-        : liveFailure ? 'Нет связи с рабочим ПК. Демонстрация'
-          : 'Живые статусы доступны из меню Telegram';
-}
-
-const examples={
-  read_files:{title:'Coder',subject:'daily/job.py',detail:'Ищет файлы в архиве'},
-  write_code:{title:'Coder',subject:'parser.py',detail:'Пишет парсер',code_snippet:'def parse_batch(items):\n    return [item.strip() for item in items]'},
-  run_tests:{title:'QA',subject:'tests',detail:'Тесты прошли',test_count:529,test_result:'success',current_log:'# tests 529\n# pass 529'},
-  error:{title:'QA',subject:'tests/test_parser.py',detail:'Разбирает сбой теста',test_count:529,test_result:'failure',current_log:'# tests 529\n# fail 1'},
-  deploy_report:{title:'Reporter',subject:'Отчёт в Telegram',detail:'Передаёт результат в штаб'},
-  idle:{title:'Команда',detail:'Агент возвращается домой'},
-};
-function showDemo() {
-  clearTimeout(demoInterval);
-  const sequence=Object.keys(examples);
-  const actionFor={read_files:'folders',write_code:'coding',run_tests:'testing',error:'testing',deploy_report:'reporting',idle:'idle'};
-  const manual=forcedDemo&&demoControl.value!=='auto';
-  function play(index) {
-    const activity=manual?demoControl.value:sequence[index];
-    const example=examples[activity];
-    apply({
-      demoActivity:activity,demoScene:example,
-      agents:{coder:{...example,action:actionFor[activity],activity,project:'dev'}},
-      relay:{stage:activity==='deploy_report'?'returning':activity==='error'?'blocked':'working',
-        updatedAt:new Date().toISOString(),detail:'Демо · '+example.detail,project:'dev'},
-    });
-    if(!manual)demoInterval=setTimeout(()=>play((index+1)%sequence.length),11500);
-  }
-  play(0);
-}
-
-function acceptLive(state) {
-  if (!state?.agents || typeof state.agents !== 'object') return false;
-  const firstSnapshot = !liveData;
-  liveData = state;
-  connecting = false;
-  liveFailure = false;
-  if (!forcedDemo) {
-    clearTimeout(demoInterval);
-    apply(state, firstSnapshot);
-  }
-  updateConnectionLabel();
-  return true;
-}
-
-function connect() {
-  if (!canConnect) return;
-  clearTimeout(reconnect);
-  socket?.close();
-  const url = new URL('/ws', endpoint);
-  url.protocol = url.protocol === 'https:' ? 'wss:' : 'ws:';
-  const client = new WebSocket(url);
-  socket = client;
-  const deadline = setTimeout(() => client.close(), 6500);
-  client.addEventListener('open', () => client.send(initData));
-  client.addEventListener('message', event => {
-    if (client !== socket) return;
-    try {
-      if (acceptLive(JSON.parse(event.data))) clearTimeout(deadline);
-    } catch {
-      client.close();
-    }
-  });
-  client.addEventListener('close', async () => {
-    clearTimeout(deadline);
-    if (client !== socket) return;
-    let state;
-    try {
-      const response = await fetch(new URL('/api/status', endpoint), {
-        headers: initData ? { authorization: 'tma ' + initData } : {},
-        signal: AbortSignal.timeout(4500),
-      });
-      state = response.ok ? await response.json() : null;
-    } catch {
-      state = null;
-    }
-    if (client !== socket) return;
-    if (acceptLive(state)) {
-      reconnect = setTimeout(connect, 5000);
-      return;
-    }
-    const wasLive = Boolean(liveData) || connecting;
-    liveData = null;
-    liveFailure = true;
-    connecting = false;
-    if (!forcedDemo && wasLive) showDemo();
-    updateConnectionLabel();
-    reconnect = setTimeout(connect, 12000);
-  });
-}
-
-function updateInspection() {
-  elements.inspection.hidden = !selectedAgent;
-  for (const [id, card] of cards) card.follow.setAttribute('aria-pressed', String(selectedAgent === id));
-  if (!selectedAgent) return;
-  const row = rows.get(selectedAgent) ?? empty;
-  elements.inspectionAgent.textContent = profiles.find(profile => profile.id === selectedAgent).title;
-  elements.inspectionAction.textContent = '· ' + stateLabel(row);
-  elements.inspectionDetail.textContent = row.detail;
-  elements.inspectionDetail.hidden = !row.detail;
-}
-
-function selectAgent(id) {
-  selectDistrict((rows.get(id) ?? empty).district, id);
-}
-
-function showDistrict(id, agentId) {
-  selected = id;
-  selectedAgent = agentId;
-  if (id) elements.app.dataset.focused = '';
-  else delete elements.app.dataset.focused;
-  elements.panel.hidden = !id;
-  for (const button of districtButtons) button.setAttribute('aria-pressed', String(button.dataset.district === id));
-  if (id) {
-    const district = districts[id];
-    elements.panel.style.setProperty('--district-color', district.color);
-    elements.panelMode.textContent = agentId ? 'Камера агента' : id === 'lounge' || id.startsWith('home-') ? 'Жилой квартал' : 'Интерьер';
-    elements.panelName.textContent = district.name;
-    elements.panelText.textContent = district.description;
-  }
-  updateInspection();
-}
-
-function selectDistrict(id, agentId) {
-  showDistrict(id, agentId);
-  city?.select(id, agentId);
-}
-
-function toggleDemo() {
-  forcedDemo = !forcedDemo;
-  elements.demo.setAttribute('aria-pressed', String(forcedDemo));
-  demoControl.hidden=!forcedDemo;
-  elements.demoLabel.textContent = forcedDemo ? 'Рабочий режим' : 'Демо';
-  clearTimeout(demoInterval);
-  if (forcedDemo) {
-    apply({ agents: {} }, true);
-    showDemo();
-    selectDistrict('dev');
-  } else if (liveData) {
-    apply(liveData, true);
-  } else {
-    showDemo();
-    connect();
-  }
-  updateConnectionLabel();
-}
-
-elements.newTask.addEventListener('click', () => {
-  if (!elements.taskText.value && ['moex', 'grants', 'dev'].includes(selected)) elements.taskProject.value = selected;
-  elements.dialog.showModal();
-  elements.taskText.focus();
-});
-elements.closeTask.addEventListener('click', () => elements.dialog.close());
-elements.taskForm.addEventListener('submit', async event => {
-  event.preventDefault();
-  if (submitting) return;
-  const task = elements.taskText.value.trim();
-  const project = elements.taskProject.value;
-  const sendFiles = elements.sendFiles.checked;
-  elements.taskMessage.hidden = false;
-  if (!task) {
-    elements.taskMessage.textContent = 'Опишите задание.';
-    elements.taskText.focus();
-    return;
-  }
-  if (taskRequest?.task !== task || taskRequest?.project !== project || taskRequest?.sendFiles !== sendFiles) {
-    taskRequest = { requestId: crypto.randomUUID(), project, task, sendFiles };
-  }
-  submitting = true;
-  elements.submitTask.disabled = true;
-  elements.taskForm.setAttribute('aria-busy', 'true');
-  elements.taskMessage.textContent = 'Запускаем задание…';
-  try {
-    const response = await fetch(new URL('/api/tasks', endpoint), {
-      method: 'POST',
-      headers: { authorization: 'tma ' + initData, 'content-type': 'application/json' },
-      body: JSON.stringify(taskRequest),
-      signal: AbortSignal.timeout(16000),
-    });
-    const result = await response.json();
-    if (!response.ok) {
-      elements.taskMessage.textContent = result.error ?? 'Сервис заданий временно недоступен.';
-      return;
-    }
-    elements.taskReceipt.textContent = 'Задание принято · ' + result.label + '. Отчёт появится в чате.';
-    elements.taskReceipt.hidden = false;
-    elements.taskText.value = '';
-    elements.sendFiles.checked = false;
-    elements.taskMessage.hidden = true;
-    taskRequest = undefined;
-    elements.dialog.close();
-  } catch {
-    elements.taskMessage.textContent = 'Связь прервалась. Повторите отправку с тем же текстом.';
-  } finally {
-    submitting = false;
-    elements.submitTask.disabled = false;
-    elements.taskForm.removeAttribute('aria-busy');
-  }
-});
-for (const button of districtButtons) button.addEventListener('click', () => selectDistrict(button.dataset.district));
-elements.overview.addEventListener('click', () => selectDistrict(null));
-elements.districtView.addEventListener('click', () => selectDistrict(selected));
-elements.demo.addEventListener('click', toggleDemo);
-document.addEventListener('visibilitychange', () => {
-  if (!document.hidden && socket?.readyState !== WebSocket.OPEN) connect();
-});
-
-const boardToggle = document.getElementById('board-toggle');
-const board = document.getElementById('board');
-const settings = document.getElementById('settings-dialog');
-const musicButton = document.getElementById('music-toggle');
-const field = Object.fromEntries(['light', 'transport', 'snow', 'music', 'volume'].map(id => [id, document.getElementById(id)]));
-const defaults = Object.freeze({ light: 'dusk', transport: 'mixed', snow: true, volume: 30 });
-const storageKey = 'ai-hub-winter-v1';
-let townOptions = { ...defaults };
+const launchData = new URLSearchParams(location.hash.slice(1)).get('tgWebAppData');
+let initData = window.Telegram?.WebApp?.initData || launchData || '';
+let selected = 0;
+let latest;
+let busy = false;
+let lastAgents = '';
+let accessState = '';
+let forceNext;
 let drag;
-let swipePointer;
-let musicEnabled = false;
-let score;
-let audioRevision = 0;
-musicButton.disabled = field.music.disabled = true;
-void import('city/music').then(module => {
-  score = module.createScore();
-  musicButton.disabled = field.music.disabled = false;
-}).catch(() => {
-  musicButton.title = 'Музыка недоступна';
-});
-
-try {
-  const saved = JSON.parse(localStorage.getItem(storageKey));
-  if (['day', 'auto', 'dusk', 'night'].includes(saved?.light)) townOptions.light = saved.light;
-  if (['mixed', 'walk', 'car'].includes(saved?.transport)) townOptions.transport = saved.transport;
-  if (typeof saved?.snow === 'boolean') townOptions.snow = saved.snow;
-  if (Number.isFinite(saved?.volume)) townOptions.volume = Math.min(100, Math.max(0, saved.volume));
-} catch {
-  // Browser privacy settings may disable persistent preferences.
+const names = ['Радар', 'Почта', 'MOEX'];
+const defaultCards = names.map((title, i) => ({id: ['radar','mail','moex'][i], title, items: []}));
+let cards = defaultCards;
+const pinKey = 'ai-hub.pinned-sources.v1';
+let pins;
+try { pins = new Set(JSON.parse(localStorage.getItem(pinKey) || '[]')); } catch { pins = new Set(); }
+const dateFmt = new Intl.DateTimeFormat('ru-RU', {day:'numeric',month:'long',weekday:'long'});
+const timeFmt = new Intl.DateTimeFormat('ru-RU', {hour:'2-digit',minute:'2-digit',second:'2-digit'});
+const stampFmt = new Intl.DateTimeFormat('ru-RU', {day:'2-digit',month:'2-digit',hour:'2-digit',minute:'2-digit'});
+const formatTime = (value, fmt) => value && Number.isFinite(new Date(value).getTime()) ? fmt.format(new Date(value)) : '';
+const el = (tag, cls, text) => {
+  const node = document.createElement(tag);
+  if (cls) node.className = cls;
+  if (text !== undefined) node.textContent = text;
+  return node;
+};
+const icons = {
+  left:'<path d="m14 5-7 7 7 7"/>', pin:'<path d="m15 3 6 6-4 1-4 5-1 4-7-7 4-1 5-4zM9 15l-6 6"/>',
+  sync:'<path d="M20 7v5h-5M4 17v-5h5"/><path d="M6 7a7 7 0 0 1 12-1l2 4M4 14l2 4a7 7 0 0 0 12-1"/>',
+  close:'<path d="m6 6 12 12M18 6 6 18"/>', send:'<path d="m3 10 18-7-6 18-4-7-8-4zm8 4L21 3"/>',
+  layers:'<path d="m12 3 9 5-9 5-9-5zM3 12l9 5 9-5M3 16l9 5 9-5"/>',
+  team:'<circle cx="9" cy="8" r="3"/><path d="M2 20v-2a6 6 0 0 1 12 0v2M16 5a3 3 0 0 1 0 6m1 3a5 5 0 0 1 5 5v1"/>'
+};
+function graphic(shape, box, cls) {
+  const svg = document.createElementNS('http://www.w3.org/2000/svg','svg');
+  svg.setAttribute('viewBox',box); svg.setAttribute('fill','none');
+  svg.setAttribute('stroke','currentColor'); svg.setAttribute('stroke-width','1.7');
+  svg.setAttribute('stroke-linejoin','round'); svg.setAttribute('stroke-linecap','round');
+  svg.setAttribute('aria-hidden','true');
+  if (cls) svg.setAttribute('class', cls);
+  svg.innerHTML = shape; // All artwork is static. Server data is written through textContent.
+  return svg;
 }
-
-function setFolded(folded) {
-  elements.app.toggleAttribute('data-folded', folded);
-  boardToggle.setAttribute('aria-expanded', String(!folded));
-  document.getElementById('board-label').textContent = folded ? 'Показать панель' : 'Свернуть панель';
-  board.hidden = folded;
-  city?.layout();
+function icon(id) { return graphic(icons[id], '0 0 24 24'); }
+const arts = [
+  '<g opacity=".7"><circle cx="105" cy="100" r="75"/><circle cx="105" cy="100" r="53"/><circle cx="105" cy="100" r="28"/><path d="M105 12v176M17 100h176M43 38l124 124m0-124L43 162" stroke-dasharray="2 5"/></g><path d="M105 100V25a75 75 0 0 1 61 31z" fill="currentColor" opacity=".16"/><path d="m105 100 61-44"/><circle cx="128" cy="76" r="4" fill="currentColor"/><circle cx="67" cy="111" r="3" fill="currentColor"/>',
+  '<g transform="translate(25 62) rotate(-11 80 45)"><rect x="17" y="-14" width="137" height="84" rx="6" opacity=".35"/><rect x="8" y="-7" width="137" height="84" rx="6" opacity=".65"/><rect x="0" y="0" width="137" height="84" rx="6" fill="#2c354a"/><path d="m2 5 65 49 68-49M3 79l43-39m88 39L91 39"/></g>',
+  '<g opacity=".35"><path d="M12 54h167M12 79h167M12 104h167M12 129h167M12 154h167" stroke-dasharray="2 4"/></g><path d="M37 64v70m24-34v45m24-77v66m24-88v60m24-71v60m23-66v62"/><g fill="currentColor" stroke="none"><rect x="32" y="78" width="10" height="36"/><rect x="56" y="108" width="10" height="22"/><rect x="80" y="88" width="10" height="33"/><rect x="104" y="57" width="10" height="29"/><rect x="128" y="46" width="10" height="30"/><rect x="151" y="45" width="10" height="19"/></g>'
+];
+document.querySelectorAll('[data-icon]').forEach(node => node.append(icon(node.dataset.icon)));
+$('sync').append(icon('sync'));
+$('today').textContent = dateFmt.format(new Date());
+const statuses = new Set(['IDLE','WORKING','DONE','ERROR']);
+const sourceStatuses = {loading:'Загрузка',cached:'Архивная сводка',ok:'Обновлено',ready:'Готово',live:'В эфире',active:'Активен',idle:'Ожидание',error:'Ошибка источника',stale:'Последняя сводка',offline:'Недоступен',unavailable:'Недоступен',empty:'Нет записей',not_configured:'Источник не подключён',unconfigured:'Источник не подключён',disconnected:'Источник не подключён'};
+function statusChip(value) {
+  const raw = String(value || '').toUpperCase();
+  const chip = el('span','status',statuses.has(raw) ? raw : 'Нет статуса');
+  chip.dataset.status = raw;
+  return chip;
 }
-
-boardToggle.addEventListener('pointerdown', event => {
-  if (!event.isPrimary || event.button !== 0) return;
-  swipePointer = undefined;
-  drag = { id: event.pointerId, start: event.clientY };
-  boardToggle.setPointerCapture(event.pointerId);
-});
-boardToggle.addEventListener('pointerup', event => {
-  if (drag?.id !== event.pointerId) return;
-  const distance = event.clientY - drag.start;
-  drag = undefined;
-  if (Math.abs(distance) < 24) return;
-  setFolded(distance > 0);
-  swipePointer = event.pointerId;
-});
-boardToggle.addEventListener('pointercancel', () => { drag = undefined; });
-boardToggle.addEventListener('click', event => {
-  if (event.detail && swipePointer !== undefined &&
-    (event.pointerId === undefined || event.pointerId === swipePointer)) {
-    swipePointer = undefined;
-    return;
+function renderCard() {
+  const data = cards[selected], type = defaultCards.findIndex(c => c.id === data.id);
+  const style = type < 0 ? selected : type;
+  const box = $('card');
+  const hero = el('div','hero ' + ['radar','mail','moex'][style]);
+  hero.append(graphic(arts[style], '0 0 200 200', 'hero-art'));
+  const top = el('div','hero-top');
+  top.append(el('span','hero-source',['Мониторинг','Входящие','Рынок'][style]),el('span','position',String(selected+1).padStart(2,'0')+' / '+String(cards.length).padStart(2,'0')));
+  hero.append(top,el('h2','',data.title || names[style]));
+  const body = el('div','sheet-body'), meta = el('div','source-line');
+  const sourceState = sourceStatuses[String(data.status || '').toLowerCase()] || data.status || 'Сводка источника';
+  meta.append(el('strong','',sourceState));
+  const updated = formatTime(data.updatedAt,stampFmt);
+  if (updated) meta.append(el('span','age',updated));
+  const rows = el('div','rows');
+  for (const item of Array.isArray(data.items) ? data.items : []) {
+    const row = el('div','row');
+    row.append(el('span','',item.label ?? ''),el('b','',item.value ?? ''));
+    if (item.detail) row.append(el('small','',item.detail));
+    rows.append(row);
   }
-  setFolded(!elements.app.hasAttribute('data-folded'));
-});
-document.addEventListener('keydown', event => {
-  if (event.key !== 'Escape' || settings.open || elements.dialog.open) return;
-  if (elements.app.hasAttribute('data-walking')) city?.walk(false);
-  else if (elements.app.hasAttribute('data-folded')) setFolded(false);
-  else if (selected) selectDistrict(null);
-});
-
-function refreshSettings() {
-  field.light.value = townOptions.light;
-  field.transport.value = townOptions.transport;
-  field.snow.checked = townOptions.snow;
-  field.music.checked = musicEnabled;
-  field.volume.value = townOptions.volume;
-  document.getElementById('volume-value').value = townOptions.volume + '%';
-  musicButton.setAttribute('aria-pressed', String(musicEnabled));
-  musicButton.setAttribute('aria-label', musicEnabled ? 'Выключить музыку' : 'Включить музыку');
-}
-
-function updateOptions() {
-  try { localStorage.setItem(storageKey, JSON.stringify(townOptions)); } catch {}
-  city?.setOptions(townOptions);
-  score?.setVolume(townOptions.volume / 100);
-  refreshSettings();
-}
-
-function applyLight() {
-  const hour = new Date().getHours();
-  const light = townOptions.light === 'auto' ? (hour >= 8 && hour < 17 ? 'day' : hour >= 17 && hour < 20 ? 'dusk' : 'night') : townOptions.light;
-  elements.app.dataset.light = light;
-  document.querySelector('meta[name="theme-color"]').content = '#0b132b';
-  return light;
-}
-
-async function toggleMusic(enabled) {
-  musicEnabled = enabled;
-  const revision = ++audioRevision;
-  if (!enabled) {
-    score?.stop();
-    refreshSettings();
-    return;
+  if (!rows.childElementCount) {
+    const message = latest ? data.message || data.detail || data.source || 'У источника пока нет записей.' :
+      accessState === 'loading' ? 'Загружаем сводку…' : accessState === 'private' ? 'Личная сводка доступна в Telegram.' : 'Сводка пока недоступна.';
+    rows.append(el('p','empty',message));
+  } else if (data.source) {
+    rows.append(el('p','detail',[data.source,data.message].filter(Boolean).join(' · ')));
   }
-  refreshSettings();
+  body.append(meta, rows); box.replaceChildren(hero,body);
+  box.setAttribute('aria-label',(data.title || names[style])+', карточка '+(selected+1)+' из '+cards.length);
+  $('pin-text').textContent = pins.has(data.id) ? 'Обновить' : 'Закрепить';
+  const nav = cards.map((c,i) => {
+    const b = el('button'); b.type = 'button'; b.setAttribute('aria-label',c.title || names[i]); b.setAttribute('aria-current',String(i===selected)); b.append(el('i'));
+    b.addEventListener('click',() => select(i)); return b;
+  });
+  $('deck-nav').replaceChildren(...nav); renderPins();
+}
+function select(index) { selected = (index + cards.length) % cards.length; renderCard(); }
+function savePins() { try { localStorage.setItem(pinKey,JSON.stringify([...pins])); } catch { /* restricted WebViews still support in-memory pins */ } }
+function renderPins() {
+  const rows = cards.filter(c => pins.has(c.id)).map(c => {
+    const wrap = el('div','pin-item'), show = el('button','',c.title), drop = el('button');
+    show.type = drop.type = 'button';
+    show.prepend(icon('pin')); drop.append(icon('close'));
+    drop.setAttribute('aria-label','Открепить '+c.title);
+    show.onclick = () => { select(cards.indexOf(c)); $('card').scrollIntoView({block:'nearest'}); };
+    drop.onclick = () => { pins.delete(c.id); savePins(); renderCard(); };
+    wrap.append(show,drop); return wrap;
+  });
+  $('pins').replaceChildren(...rows); $('saved').hidden = !rows.length;
+}
+function pin() {
+  const c = cards[selected]; pins.add(c.id); savePins();
+  $('feedback').textContent = c.title+' в закреплённых';
+  select(selected+1); refresh(c.id);
+}
+function displayResource(value) {
+  if (value == null) return '';
+  if (typeof value !== 'object') return String(value);
+  return Object.entries(value).map(([key,v]) => key+' '+displayResource(v)).join(' · ');
+}
+function facts(entry, parent) {
+  const list = el('div','facts');
+  for (const [label,value] of [['Файл',entry.file],['API',entry.api],['Токены',entry.tokens == null ? 'нет замера' : new Intl.NumberFormat('ru-RU').format(entry.tokens)],['Ресурсы',displayResource(entry.resources)]]) {
+    if (!value) continue;
+    const fact = el('span');fact.append(document.createTextNode(label+' '),el('strong','',value)); list.append(fact);
+  }
+  parent.append(list);
+}
+function journalView(agent, open) {
+  const events = Array.isArray(agent.events) ? agent.events : [];
+  const journal = el('details'), summary = el('summary','','Журнал'+(events.length ? ' · '+events.length : ''));
+  journal.dataset.id = agent.id || 'lead';
+  journal.open = open;
+  journal.append(summary);
+  const list = el('ol','events');
+  for (const ev of events) {
+    const row = el('li');
+    row.append(el('span','time',formatTime(ev.at,timeFmt) || '—'),el('span','',ev.text));
+    list.append(row);
+  }
+  journal.append(events.length ? list : el('p','detail','Событий пока нет.'));
+  return journal;
+}
+function renderTeam() {
+  updatePreview(latest?.preview);
+  const lead = latest?.lead, agents = Array.isArray(latest?.agents) ? latest.agents : [];
+  const viewKey = JSON.stringify([lead,agents,accessState]);
+  if (lastAgents === viewKey) return;
+  lastAgents = viewKey;
+  const heading = el('div','agent-top');
+  heading.append(el('h2','',lead?.name || 'ChatGPT Lead'),statusChip(lead?.status));
+  const parts = [el('p','lead-kicker','Главный оркестратор'),heading];
+  if (lead?.task) parts.push(el('p','task',lead.task));
+  if (lead?.detail && lead.detail !== lead.task) parts.push(el('p','detail',lead.detail));
+  const leadOpen = $('lead').querySelector('details')?.open ?? false;
+  const leadFocused = document.activeElement?.closest('#lead details');
+  $('lead').replaceChildren(...parts);
+  if (lead) {
+    facts(lead,$('lead'));
+    $('lead').append(journalView(lead,leadOpen));
+    if (leadFocused) $('lead').querySelector('summary')?.focus({preventScroll:true});
+  }
+  const expanded = new Set([...$('agents').querySelectorAll('details[open]')].map(node => node.dataset.id));
+  const oldIds = new Set([...$('agents').querySelectorAll('details')].map(node => node.dataset.id));
+  const focusId = document.activeElement?.closest('#agents details')?.dataset.id;
+  const rows = agents.map(agent => {
+    const card = el('article','agent'), head = el('div','agent-top');
+    head.append(el('h3','',agent.name || agent.id),statusChip(agent.status)); card.append(head);
+    if (agent.task) card.append(el('p','task',agent.task));
+    facts(agent,card);
+    const open = expanded.has(agent.id) || (!oldIds.has(agent.id) && ['WORKING','ERROR'].includes(agent.status));
+    card.append(journalView(agent,open)); return card;
+  });
+  if (!rows.length) rows.push(el('p','empty',latest ? 'Агенты ещё не зарегистрировали события.' : 'Журнал появится при подключении к серверу.'));
+  $('agents').replaceChildren(...rows);
+  if (focusId) [...$('agents').querySelectorAll('details')].find(node => node.dataset.id === focusId)?.querySelector('summary')?.focus({preventScroll:true});
+  $('count').textContent = agents.length ? agents.filter(a => a.status==='WORKING').length+' в работе' : '';
+}
+let previewId, videoUrl;
+function updatePreview(id) {
+  if (id === previewId) return;
+  previewId = id;
+  const video = $('clip');
+  video.removeAttribute('src'); video.load(); video.hidden = true;
+  if (videoUrl) URL.revokeObjectURL(videoUrl);
+  videoUrl = null;
+  $('preview').hidden = !id; $('view-video').hidden = false; $('view-video').disabled = false;
+  $('video-status').textContent = '';
+}
+$('view-video').onclick = async () => {
+  const id = previewId, button = $('view-video');
+  if (!id || button.disabled) return;
+  button.disabled = true;
+  $('video-status').textContent = 'Загружаем ролик…';
   try {
-    if (!score || document.hidden) return;
-    score.setVolume(townOptions.volume / 100);
-    await score.start();
-    if (!musicEnabled || document.hidden) score.stop();
+    const response = await fetch(new URL('/api/preview/'+encodeURIComponent(id),endpoint),{
+      headers:initData ? {authorization:'tma '+initData} : {},credentials:'omit',signal:AbortSignal.timeout(45000)
+    });
+    if (!response.ok) throw Error('preview');
+    const media = await response.blob();
+    if (id !== previewId) return;
+    videoUrl = URL.createObjectURL(media);
+    $('clip').src = videoUrl; $('clip').hidden = false; button.hidden = true;
+    $('video-status').textContent = '';
+    await $('clip').play().catch(() => {});
   } catch {
-    if (revision === audioRevision) musicEnabled = false;
-  } finally {
-    refreshSettings();
+    if (id === previewId) $('video-status').textContent = 'Не удалось загрузить ролик. Попробуйте ещё раз.';
+  } finally { if (id === previewId) button.disabled = false; }
+};
+function connection(state) {
+  accessState = state;
+  const labels = {loading:'Подключение',online:'На связи',offline:'Нет связи',private:'Личный доступ'};
+  const badge = $('connection'); badge.dataset.state = state; badge.lastElementChild.textContent = labels[state];
+  const notice = $('access');
+  notice.hidden = !['offline','private'].includes(state);
+  if (state==='private') {
+    const a=el('a','','Открыть Telegram');a.href=botUrl;
+    notice.replaceChildren(document.createTextNode('Откройте Mini App через кнопку меню бота. '),a);
+  } else if (state==='offline') {
+    notice.textContent = latest ? 'Связь прервалась. Показана последняя полученная сводка.' : 'Сервер недоступен. Подключение повторится автоматически.';
   }
 }
-
-for (const name of ['light', 'transport', 'snow', 'volume']) {
-  field[name].addEventListener(name === 'volume' ? 'input' : 'change', () => {
-    townOptions[name] = name === 'snow' ? field[name].checked : name === 'volume' ? Number(field[name].value) : field[name].value;
-    applyLight();
-    updateOptions();
-  });
+async function refresh(source) {
+  if (!endpoint || (!local && !initData)) { connection('private'); renderCard();renderTeam();return; }
+  if (busy) { if (source) forceNext = source; return; }
+  busy = true; $('sync').disabled = true;
+  const ctl = new AbortController(), timeout = setTimeout(() => ctl.abort(),11000);
+  try {
+    const url = new URL('/api/dashboard',endpoint);
+    if (source) url.searchParams.set('refresh',source);
+    const response = await fetch(url,{headers:initData ? {authorization:'tma '+initData} : {},signal:ctl.signal,cache:'no-store',credentials:'omit'});
+    if ([401,403].includes(response.status)) { latest = undefined;cards=defaultCards;connection('private'); }
+    else {
+      if (!response.ok) throw Error('HTTP '+response.status);
+      const next = await response.json();
+      if (!Array.isArray(next.cards) || !Array.isArray(next.agents)) throw Error('Invalid dashboard');
+      latest = next;
+      cards = defaultCards.map((card,i) => next.cards.find(entry => entry.id===card.id) || next.cards[i] || card);
+      connection('online');
+    }
+  } catch { connection('offline'); }
+  finally {
+    clearTimeout(timeout);busy=false; $('sync').disabled=false;
+    if (!drag) renderCard();renderTeam();
+    if (forceNext) {const next=forceNext;forceNext=undefined;void refresh(next);}
+  }
 }
-field.music.addEventListener('change', () => toggleMusic(field.music.checked));
-musicButton.addEventListener('click', () => toggleMusic(!musicEnabled));
-document.getElementById('settings-toggle').addEventListener('click', () => settings.showModal());
-document.getElementById('reset-settings').addEventListener('click', () => {
-  townOptions = { ...defaults };
-  void toggleMusic(false);
-  applyLight();
-  updateOptions();
+$('pin').onclick = pin; $('skip').onclick = () => select(selected+1); $('sync').onclick = () => refresh(cards[selected].id);
+const box = $('card');
+box.addEventListener('pointerdown',e => {
+  if (!e.isPrimary || e.button!==0) return;
+  drag = {id:e.pointerId,x:e.clientX,y:e.clientY}; box.setPointerCapture(e.pointerId);
 });
-document.addEventListener('visibilitychange', () => {
-  if (document.hidden) { audioRevision++; score?.stop(); }
-  else if (musicEnabled) void toggleMusic(true);
+box.addEventListener('pointermove',e => {
+  if (!drag || drag.id!==e.pointerId) return;
+  const dx=e.clientX-drag.x,dy=e.clientY-drag.y;
+  if (Math.abs(dx)<8 || Math.abs(dx)<Math.abs(dy)) return;
+  box.classList.add('dragging'); box.style.transform='translateX('+Math.max(-70,Math.min(70,dx*.32))+'px) rotate('+Math.max(-4,Math.min(4,dx*.016))+'deg)';
 });
-setInterval(() => { if (townOptions.light === 'auto') city?.setOptions(townOptions); }, 30000);
-applyLight();
-refreshSettings();
-
-
-updateConnectionLabel();
-if (canConnect) apply({ agents: {} }, true);
-else showDemo();
-connect();
-
-Promise.all([
-  import('three'), import('three/addons/controls/OrbitControls.js'),
-  import('city/world'), import('city/navigation'), import('city/displays'), import('city/offices'), import('city/traffic'),
-])
-  .then(async ([THREE, { OrbitControls }, world, navigation, displays, offices, traffic]) => {
-    city = world.createCity(THREE, OrbitControls, navigation, displays, offices, traffic, {
-      canvas: elements.canvas, markers: elements.markers, profiles, districts, board, reducedMotion,
-      movePad: document.getElementById('walk-move'),
-      lookPad: document.getElementById('walk-look'),
-      walkPlace: document.getElementById('walk-place'),
-      lightMode: applyLight,
-      onLift(info) {
-        liftPanel.hidden=!info;
-        if(!info)return;
-        liftCall.disabled=info.inside||info.moving||info.at===info.floor;
-        liftStatus.textContent=info.moving?'Лифт в пути':'Лифт · этаж '+(info.at+1);
-        for(const [index,button] of liftButtons.entries()){
-          button.disabled=!info.inside||info.moving||index===info.at;
-          button.setAttribute('aria-pressed',String(index===info.at));
-        }
-      },
-      onOffice(visible,reset){
-        floorPicker.hidden=!visible;
-        if(reset)floorControl.value='auto';
-      },
-      onSelect: selectDistrict,
-      onWalk(walking) {
-        elements.app.toggleAttribute('data-walking', walking);
-        orbitButton.setAttribute('aria-pressed', String(!walking));
-        walkButton.setAttribute('aria-pressed', String(walking));
-        document.getElementById('walk-hud').hidden = !walking;
-        if(!walking)liftPanel.hidden=true;
-      },
-    });
-    city.update(rows, relayStatus, Boolean(liveData), displaySnapshot);
-    city.setOptions(townOptions);
-    if (selected) selectDistrict(selected, selectedAgent);
-    await city.ready;
-    document.getElementById('city-loading').hidden = true;
-    walkButton.disabled = false;
-  })
-  .catch(error => {
-    document.getElementById('city-loading').hidden = true;
-    console.error('Не удалось создать город', error);
-    elements.world.dataset.fallback = 'true';
-    elements.canvas.hidden = true;
-    elements.help.textContent = '3D недоступно. Задачи и статусы доступны в панели.';
-    elements.help.hidden = false;
-  });
+function endDrag(e) {
+  if (!drag || drag.id!==e.pointerId) return;
+  const dx=e.clientX-drag.x,dy=e.clientY-drag.y;
+  drag=null;box.classList.remove('dragging');box.style.transform='';
+  if (e.type==='pointerup' && Math.abs(dx)>50 && Math.abs(dx)>Math.abs(dy)*1.3) {
+    if (dx>0) pin(); else select(selected+1);
+  } else renderCard();
+}
+for (const action of ['pointerup','pointercancel','lostpointercapture']) box.addEventListener(action,endDrag);
+box.addEventListener('keydown',e => {
+  if (!['ArrowLeft','ArrowRight'].includes(e.key)) return;
+  e.preventDefault();if(e.key==='ArrowRight') pin();else select(selected+1);
+});
+const tabs = [$('data-tab'),$('team-tab')];
+function showTab(active) {
+  tabs.forEach((tab,i) => {tab.setAttribute('aria-selected',String(i===active));tab.tabIndex=i===active?0:-1;$(tab.getAttribute('aria-controls')).hidden=i!==active;});
+  scrollTo(0,0);
+}
+tabs.forEach((tab,i) => {
+  tab.onclick = () => showTab(i);
+  tab.addEventListener('keydown',e => {if(['ArrowLeft','ArrowRight','Home','End'].includes(e.key)){e.preventDefault();const next=e.key==='Home'?0:e.key==='End'?1:1-i;showTab(next);tabs[next].focus();}});
+});
+function enableTelegram() {
+  const tg = window.Telegram?.WebApp;
+  if (!tg) return;
+  tg.ready();tg.expand();
+  if (tg.isVersionAtLeast?.('7.7')) tg.disableVerticalSwipes?.();
+  if (tg.initData && !initData) { initData=tg.initData;void refresh(); }
+}
+if (window.Telegram?.WebApp) enableTelegram();
+else if (launchData || /tgWebApp(?:Platform|Version)=/.test(location.hash)) {
+  const sdk = document.createElement('script');sdk.src='https://telegram.org/js/telegram-web-app.js';sdk.onload=enableTelegram;document.head.append(sdk);
+}
+connection('loading');renderCard();renderTeam();void refresh();
+setInterval(() => {if(!document.hidden && (initData || local)) void refresh();},4000);
+document.addEventListener('visibilitychange',() => {if(!document.hidden) void refresh();});

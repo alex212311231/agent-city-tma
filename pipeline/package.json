@@ -1,0 +1,1 @@
+{"name":"ai-hub-local-media","private":true,"dependencies":{"@remotion/whisper-web":"4.0.547","playwright-core":"^1.56.0"}}

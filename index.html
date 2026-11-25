@@ -3,147 +3,46 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
-  <meta name="theme-color" content="#0b132b">
-  <meta name="description" content="Зимний офис AI Hub. Задания, маршруты и рабочие места агентов.">
-  <title>Город агентов · AI Hub</title>
-  <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 48 48'%3E%3Crect width='48' height='48' rx='12' fill='%23294766'/%3E%3Cpath d='M24 8v32M10 16l28 16M10 32l28-16' stroke='%23fff6d8' stroke-width='3' stroke-linecap='round'/%3E%3C/svg%3E">
-  <link rel="stylesheet" href="./office.css?v=22efa52a35b9">
-  <script type="importmap">
-    {"imports":{"three":"https://cdn.jsdelivr.net/npm/three@0.180.0/build/three.module.js",
-      "three/addons/":"https://cdn.jsdelivr.net/npm/three@0.180.0/examples/jsm/",
-      "city/homes":"./city-homes.mjs?v=a540980c6b98",
-      "city/assets":"./city-assets.mjs?v=52bf8ac88cf2",
-      "city/world":"./city-world.mjs?v=bc3e89188d7e",
-      "city/navigation":"./city-navigation.mjs?v=6148ea26c234",
-      "city/displays":"./city-displays.mjs?v=d87a29eac276",
-      "city/offices":"./city-offices.mjs?v=624fbeb338d1",
-      "city/traffic":"./city-traffic.mjs?v=605f1d579c66",
-      "city/music":"./city-music.mjs?v=16ecba2176dc"}}
-  </script>
-  <script defer src="https://telegram.org/js/telegram-web-app.js"></script>
-  <script defer src="./config.js"></script>
-  <script defer src="./office.js?v=dfd7f785dff5"></script>
+  <meta name="theme-color" content="#eff2ed">
+  <meta name="description" content="Пульт AI Hub — сводки источников и живой журнал агентов.">
+  <title>Пульт · AI Hub</title>
+  <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 48 48'%3E%3Crect width='48' height='48' rx='13' fill='%2310332c'/%3E%3Cpath d='M10 33l9-18h5l-9 18zm12 0 9-18h6l-9 18z' fill='%23c7ed83'/%3E%3C/svg%3E">
+  <link rel="stylesheet" href="./office.css?v=desk1">
+  <script src="./config.js" defer></script>
+  <script src="./office.js?v=desk1" defer></script>
 </head>
 <body>
-  <main class="app" id="app">
-    <div id="world" class="world">
-      <canvas id="city" tabindex="0" aria-label="Зимний 3D-город. Перетаскивайте для поворота, используйте колёсико или щипок для зума."></canvas>
-      <div id="markers" class="markers" aria-label="Здания города"></div>
-      <p id="city-loading" class="city-loading glass" role="status">Загружается 3D-город…</p>
+  <header class="topbar">
+    <div class="top-inner">
+      <div class="brand"><span class="mark" aria-hidden="true"><i></i><i></i></span>AI Hub</div>
+      <div id="connection" class="connection" role="status"><i></i><span>Подключение</span></div>
     </div>
-
-    <header class="topbar chrome">
-      <div class="identity">
-        <span class="mark" aria-hidden="true">❄</span>
-        <div><span class="brand">AI HUB</span><h1>Город агентов</h1></div>
+  </header>
+  <main>
+    <section id="data-view" role="tabpanel" aria-labelledby="data-tab">
+      <div class="section-head"><div><p class="eyebrow" id="today"></p><h1>Данные</h1></div><button id="sync" class="icon-button" type="button" title="Обновить сводки" aria-label="Обновить сводки"></button></div>
+      <div class="deck">
+        <article id="card" class="sheet" aria-label="Карточка источника" tabindex="0"></article>
       </div>
-      <div class="top-controls">
-        <div id="connection" class="connection" role="status" data-mode="demo">Демо</div>
-        <button id="music-toggle" class="icon" type="button" aria-label="Включить музыку" aria-pressed="false" title="Музыка">♪</button>
-        <button id="settings-toggle" class="icon" type="button" aria-label="Настройки города" title="Настройки">⚙</button>
+      <div class="deck-actions">
+        <button id="skip" class="secondary" type="button"><span class="ico" data-icon="left"></span>Пропустить</button>
+        <button id="pin" class="primary" type="button"><span class="ico" data-icon="pin"></span><span id="pin-text">Закрепить</span></button>
       </div>
-    </header>
-
-    <div class="camera-switch glass" role="group" aria-label="Режим камеры">
-      <button type="button" id="orbit-mode" aria-label="Обзор города" aria-pressed="true">Обзор</button>
-      <button type="button" id="walk-mode" aria-label="От 1-го лица (Прогулка)" aria-pressed="false" disabled>Прогулка</button>
-    </div>
-    <div id="walk-hud" class="walk-hud" hidden>
-      <p id="walk-place" class="walk-place glass">Улица</p>
-      <p class="walk-help glass">WASD · Shift для ускорения · Зажмите левую кнопку для обзора</p>
-      <div class="joystick joystick-left" id="walk-move" aria-label="Движение"><i aria-hidden="true"></i></div>
-      <div class="joystick joystick-right" id="walk-look" aria-label="Поворот камеры"><i aria-hidden="true"></i></div>
-      <div id="lift-panel" class="lift-panel glass" hidden>
-        <span id="lift-status" role="status">Лифт</span>
-        <button id="lift-call" type="button">Вызвать</button>
-        <button data-floor="0" type="button" aria-label="Первый этаж">1</button>
-        <button data-floor="1" type="button" aria-label="Второй этаж">2</button>
-        <button data-floor="2" type="button" aria-label="Третий этаж">3</button>
-      </div>
-      <span class="walk-target" aria-hidden="true"></span>
-    </div>
-
-    <div class="district-controls chrome">
-      <aside id="district" class="district glass" aria-label="Выбранное место" hidden>
-        <div><p id="district-mode" class="district-mode">Интерьер</p><h2 id="district-name"></h2><p id="district-description"></p></div>
-        <button id="overview" class="outline-button" type="button">К городу</button>
-      </aside>
-
-      <div id="floor-picker" class="floor-picker glass" hidden>
-        <label for="office-floor">Этаж офиса</label>
-        <select id="office-floor"><option value="auto">Рабочая сценка</option><option value="0">1 · Лобби</option><option value="1">2 · Офис</option><option value="2">3 · Архив</option></select>
-      </div>
-    </div>
-    <section class="dock" id="dock" aria-label="Управление городом">
-      <button id="board-toggle" class="board-toggle glass" type="button" aria-expanded="true" aria-controls="board">
-        <span class="grip" aria-hidden="true"></span><span id="board-label">Свернуть панель</span>
-        <span class="chevron" aria-hidden="true"></span>
-      </button>
-      <div id="board" class="board glass">
-        <nav class="districts" aria-label="Районы города">
-          <button type="button" data-district="hq" aria-pressed="false">Эмпайр-стейт</button>
-          <button type="button" data-district="moex" aria-pressed="false">MOEX</button>
-          <button type="button" data-district="grants" aria-pressed="false">Радар</button>
-          <button type="button" data-district="dev" aria-pressed="false">Dev Lab</button>
-          <button type="button" data-district="lounge" aria-pressed="false">Дома</button>
-        </nav>
-        <div class="board-scroll">
-          <div class="dashboard-header">
-            <div><h2>Агенты</h2><p id="note">Подключаемся к серверу статусов…</p></div>
-            <div class="dashboard-controls">
-              <select id="demo-activity" aria-label="Сценка демо" hidden>
-                <option value="auto">Сценки</option><option value="read_files">Архив</option><option value="write_code">Код</option>
-                <option value="run_tests">Тесты</option><option value="error">Ошибка</option><option value="deploy_report">Отчёт</option><option value="idle">Лаунж</option>
-              </select>
-              <button id="demo" class="outline-button demo-button" type="button" aria-pressed="false"><span id="demo-label">Демо</span></button>
-              <button id="new-task" class="primary-button" type="button" hidden>Новое задание</button>
-            </div>
-          </div>
-          <div id="agent-inspection" class="agent-inspection" hidden>
-            <div><strong id="inspection-agent"></strong> <span id="inspection-action"></span><p id="inspection-detail"></p></div>
-            <button id="district-view" class="outline-button" type="button">Осмотреть этаж</button>
-          </div>
-          <div id="orbital-status" class="orbital-status" role="status" hidden><strong id="orbital-stage"></strong><span id="orbital-detail"></span></div>
-          <p id="task-receipt" class="task-receipt" role="status" hidden></p>
-          <div id="agents" class="agents"></div>
-          <div id="job-status" class="job-status" aria-label="Фоновые задачи" hidden></div>
-          <p id="world-help" class="world-help" hidden></p>
-        </div>
-      </div>
+      <div class="deck-nav" id="deck-nav" aria-label="Выбрать источник"></div>
+      <section id="saved" hidden><h2>Закреплено</h2><div id="pins"></div></section>
     </section>
+    <section id="team-view" role="tabpanel" aria-labelledby="team-tab" hidden>
+      <div class="section-head"><div><p class="eyebrow">Журнал работы</p><h1>Агенты</h1></div><a class="icon-button" href="https://t.me/ClaudeNFications_bot" aria-label="Написать задание в Telegram" title="Написать задание в Telegram"><span class="ico" data-icon="send"></span></a></div>
+      <article id="lead" class="lead"></article>
+      <section id="preview" hidden><button type="button" id="view-video" class="secondary">Посмотреть готовый ролик</button><p id="video-status" role="status"></p><video id="clip" controls playsinline hidden></video></section>
+      <section><div class="list-head"><h2>Команда</h2><span id="count" class="count"></span></div><div id="agents"></div></section>
+    </section>
+    <p id="access" class="access" hidden></p>
+    <p id="feedback" class="sr" role="status"></p>
   </main>
-
-  <dialog id="task-dialog" class="task-dialog" aria-labelledby="task-title">
-    <form id="task-form">
-      <div class="task-heading">
-        <h2 id="task-title">Новое задание</h2>
-        <button id="close-task" type="button" class="icon" aria-label="Закрыть">×</button>
-      </div>
-      <label for="task-project">Проект</label>
-      <select id="task-project" name="project">
-        <option value="dev">Dev Lab</option><option value="moex">MOEX Quant Terminal</option><option value="grants">Радар грантов</option>
-      </select>
-      <label for="task-text">Что нужно сделать</label>
-      <textarea id="task-text" name="task" rows="5" maxlength="6000" required></textarea>
-      <label class="checkbox"><input id="send-files" type="checkbox"> Прислать готовые файлы в Telegram</label>
-      <p id="task-message" role="status" hidden></p>
-      <button id="submit-task" class="primary-button" type="submit">Запустить</button>
-    </form>
-  </dialog>
-
-  <dialog id="settings-dialog" class="task-dialog" aria-labelledby="settings-title">
-    <form method="dialog">
-      <div class="task-heading"><h2 id="settings-title">Настройки города</h2><button class="icon" aria-label="Закрыть">×</button></div>
-      <label for="light">Время суток</label>
-      <select id="light"><option value="day">День</option><option value="auto">По местному времени</option><option value="dusk">Вечер</option><option value="night">Ночь</option></select>
-      <label for="transport">Как агенты добираются</label>
-      <select id="transport"><option value="mixed">Пешком и на машинах</option><option value="walk">Пешком</option><option value="car">На машинах</option></select>
-      <label class="checkbox"><input id="snow" type="checkbox"> Снегопад</label>
-      <label class="checkbox"><input id="music" type="checkbox"> Новогодняя музыка</label>
-      <label for="volume">Громкость <output id="volume-value">30%</output></label>
-      <input id="volume" type="range" min="0" max="100" value="30">
-      <button id="reset-settings" class="outline-button" type="button">Сбросить настройки</button>
-    </form>
-  </dialog>
+  <div class="bottom"><nav role="tablist" aria-label="Разделы">
+    <button id="data-tab" type="button" role="tab" aria-controls="data-view" aria-selected="true"><span class="ico" data-icon="layers"></span>Данные</button>
+    <button id="team-tab" type="button" role="tab" aria-controls="team-view" aria-selected="false" tabindex="-1"><span class="ico" data-icon="team"></span>Агенты</button>
+  </nav></div>
 </body>
 </html>
