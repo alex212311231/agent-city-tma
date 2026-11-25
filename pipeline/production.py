@@ -1,6 +1,4 @@
-import asyncio
 import difflib
-import html
 import json
 import os
 from pathlib import Path
@@ -9,7 +7,7 @@ import shutil
 import subprocess
 import wave
 
-import edge_tts
+
 from slides import render
 
 TOOLS = Path(os.environ.get('CONTENT_TOOLS', Path(__file__).resolve().parents[2]/'runtime'/'content-tools'))
@@ -31,21 +29,6 @@ def cmd(args, cwd, timeout=350):
 
 def encode(run, args):
     return cmd([tool('ffmpeg'),'-nostdin','-hide_banner','-loglevel','error','-y',*args],run)
-
-
-async def speak(target, script, voice):
-    words = []
-    service = edge_tts.Communicate(script, voice=voice, boundary='WordBoundary', receive_timeout=30)
-    with target.open('wb') as file:
-        async for chunk in service.stream():
-            if chunk['type'] == 'audio':
-                file.write(chunk['data'])
-            if chunk['type'] == 'WordBoundary':
-                words.append(dict(text=html.unescape(chunk['text']), start=chunk['offset']/1e7,
-                                  end=(chunk['offset']+chunk['duration'])/1e7))
-    if not words or not target.stat().st_size:
-        raise RuntimeError('Edge TTS не вернул голос или таймкоды.')
-    return words
 
 
 def stamp(seconds):
@@ -108,76 +91,61 @@ Format: Layer,Start,End,Style,Name,MarginL,MarginR,MarginV,Effect,Text
     return matches
 
 
-def assemble(run, script, note):
-    render(run,script)
-    voice = os.environ.get('CONTENT_VOICE','ru-RU-SvetlanaNeural')
-    spans, words, samples, offset = [], [], [], 0
-    for i, slide in enumerate(script['slides']):
-        name = f'voice-{i}'
-        note(f'Озвучка {i+1}/{len(script["slides"])}', file=name+'.mp3',api='Microsoft Edge Read Aloud')
-        timing = asyncio.run(speak(run/(name+'.mp3'),slide['speech'],voice))
-        encode(run,['-i',name+'.mp3','-ar','16000','-ac','1',name+'.wav'])
-        with wave.open(str(run/(name+'.wav')),'rb') as wav:
-            duration=wav.getnframes()/wav.getframerate()
-            samples.append(wav.readframes(wav.getnframes()))
-        for word in timing:
-            word['start']+=offset
-            word['end']+=offset
-            words.append(word)
-        offset+=duration
-        spans.append(duration)
-    with wave.open(str(run/'raw.wav'),'wb') as raw:
-        raw.setparams((1,2,16000,0,'NONE',''))
-        for data in samples:
-            raw.writeframes(data)
-    target=min(57.5,max(46,offset))
-    rate=offset/target
-    if not .72 <= rate <= 1.45:
-        raise ValueError('Озвучка слишком длинная или короткая для естественного темпа 45–60 с.')
-    encode(run,['-i','raw.wav','-af',f'atempo={rate:.8f}','narration.wav'])
-    with wave.open(str(run/'narration.wav'),'rb') as wav:
-        duration = wav.getnframes()/16000
-    for word in words:
-        word['start']/=rate
-        word['end']/=rate
-    note('Локальный Whisper сверяет речь с таймкодами синтеза',file='transcript.json',api='whisper.cpp CPU')
-    model = Path(os.environ.get('WHISPER_MODEL_PATH',TOOLS/'ggml-tiny.bin'))
-    try:
-        cmd([tool('whisper-cli'),'-m',str(model),'-f','narration.wav','-l','ru','-ml','1','-sow','-oj',
-             '-of','transcript','-t','4','-np'],run)
-    except OSError as exc:
-        if not isinstance(exc, FileNotFoundError) and getattr(exc, 'winerror', 0) not in (4551, 1260, 577):
-            raise
-        note('Сверяет озвучку локальным Whisper в браузере',file='transcript.json',api='Whisper WASM / CPU')
+def assemble(run, script, note, narration=None):
+    render(run, script)
+    slides = script['slides']
+    words_by_slide = [s['speech'].split() for s in slides]
+    counts = [len(group) for group in words_by_slide]
+    total = sum(counts)
+    transcript = {'transcription': []}
+    duration = max(46, min(59, total / 2.1))
+    if narration:
+        note('Читает готовую озвучку канала', file='narration.wav', api='FFmpeg')
+        encode(run, ['-i',str(narration.resolve()),'-ar','16000','-ac','1','narration.wav'])
+        with wave.open(str(run/'narration.wav'),'rb') as audio:
+            duration = audio.getnframes()/audio.getframerate()
+        if not 45 <= duration <= 60:
+            raise ValueError('Озвучка для этого формата должна занимать от 45 до 60 секунд.')
+        model = Path(os.environ.get('WHISPER_MODEL_PATH',TOOLS/'ggml-tiny.bin'))
+        note('Проверяет таймкоды озвучки',file='transcript.json',api='Whisper WASM / CPU')
         cmd(['node',str(Path(__file__).with_name('whisper-web.mjs')),'narration.wav',
              str(model),'transcript.json'],run)
-    transcript = json.loads((run/'transcript.json').read_text(encoding='utf-8-sig'))
+        transcript = json.loads((run/'transcript.json').read_text(encoding='utf-8-sig'))
+    words = []
+    for group in words_by_slide:
+        for word in group:
+            index = len(words)
+            words.append({'text':word,'start':index*duration/total,'end':(index+1)*duration/total})
     matched = aligned_captions(run,words,transcript,duration)
+    spans = [count*duration/total for count in counts]
     timeline = []
     for i,span in enumerate(spans):
-        timeline.extend([f"file 'slide-{i}.png'",'option framerate 60',f'duration {span/rate:.8f}'])
+        timeline.extend([f"file 'slide-{i}.png'",'option framerate 60',f'duration {span:.8f}'])
     timeline.extend([f"file 'slide-{len(spans)-1}.png'",'option framerate 60'])
     (run/'slides.ffconcat').write_text('\n'.join(timeline)+'\n',encoding='ascii')
-    note('Рендер слайдов, синхронных титров и голоса',file='output.mp4',api='FFmpeg / libx264')
-    encode(run,['-safe','0','-f','concat','-i','slides.ffconcat','-i','narration.wav','-vf',
+    filename = 'output.mp4' if narration else 'storyboard.mp4'
+    audio_input = ['-i','narration.wav'] if narration else []
+    audio_codec = ['-c:a','aac','-b:a','128k'] if narration else ['-an']
+    note('Собирает видео с титрами',file=filename,api='FFmpeg')
+    encode(run,['-safe','0','-f','concat','-i','slides.ffconcat',*audio_input,'-vf',
                 'fps=60,ass=captions.ass','-c:v','libx264','-threads','4','-preset','veryfast',
-                '-crf','23','-pix_fmt','yuv420p','-c:a','aac','-b:a','128k','-t',f'{duration:.4f}',
-                '-movflags','+faststart','output.tmp.mp4'])
-    (run/'output.tmp.mp4').replace(run/'output.mp4')
-    return dict(synthesized_words=len(words), whisper_aligned=matched, voice=voice)
+                '-crf','23','-pix_fmt','yuv420p',*audio_codec,'-t',f'{duration:.4f}',
+                '-movflags','+faststart','render.tmp.mp4'])
+    (run/'render.tmp.mp4').replace(run/filename)
+    return dict(words=total,whisper_aligned=matched,voice='Дорожка канала' if narration else None)
 
 
-def validate(run):
+def validate(run, filename='output.mp4'):
     import imageio_ffmpeg
-    frames = imageio_ffmpeg.read_frames(str(run/'output.mp4'))
+    frames = imageio_ffmpeg.read_frames(str(run/filename))
     try:
         meta = next(frames)
     finally:
         frames.close()
     duration = meta['duration']
     ok=(meta['codec']=='h264' and tuple(meta['size'])==(1080,1920) and
-        abs(meta['fps']-60)<0.01 and meta['audio_codec']=='aac' and 45<=duration<=60.05)
+        abs(meta['fps']-60)<0.01 and (meta.get('audio_codec')=='aac' if filename=='output.mp4' else not meta.get('audio_codec')) and 45<=duration<=60.05)
     if not ok:
         raise ValueError('Проверка FFmpeg: требуется 1080×1920, 60 fps, H.264/AAC, 45–60 секунд.')
-    cmd([tool('ffmpeg'),'-v','error','-xerror','-i','output.mp4','-f','null','-'],run)
-    return dict(duration=duration,fps=60,width=1080,height=1920,bytes=(run/'output.mp4').stat().st_size)
+    cmd([tool('ffmpeg'),'-v','error','-xerror','-i',filename,'-f','null','-'],run)
+    return dict(duration=duration,fps=60,width=1080,height=1920,bytes=(run/filename).stat().st_size)

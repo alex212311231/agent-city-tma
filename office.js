@@ -56,7 +56,7 @@ document.querySelectorAll('[data-icon]').forEach(node => node.append(icon(node.d
 $('sync').append(icon('sync'));
 $('today').textContent = dateFmt.format(new Date());
 const statuses = new Set(['IDLE','WORKING','DONE','ERROR']);
-const sourceStatuses = {loading:'Загрузка',cached:'Архивная сводка',ok:'Обновлено',ready:'Готово',live:'В эфире',active:'Активен',idle:'Ожидание',error:'Ошибка источника',stale:'Последняя сводка',offline:'Недоступен',unavailable:'Недоступен',empty:'Нет записей',not_configured:'Источник не подключён',unconfigured:'Источник не подключён',disconnected:'Источник не подключён'};
+const sourceStatuses = {partial:'Частичная сводка',loading:'Загрузка',cached:'Архивная сводка',ok:'Обновлено',ready:'Готово',live:'В эфире',active:'Активен',idle:'Ожидание',error:'Ошибка источника',stale:'Последняя сводка',offline:'Недоступен',unavailable:'Недоступен',empty:'Нет записей',not_configured:'Источник не подключён',unconfigured:'Источник не подключён',disconnected:'Источник не подключён'};
 function statusChip(value) {
   const raw = String(value || '').toUpperCase();
   const chip = el('span','status',statuses.has(raw) ? raw : 'Нет статуса');
@@ -70,7 +70,7 @@ function renderCard() {
   const hero = el('div','hero ' + ['radar','mail','moex'][style]);
   hero.append(graphic(arts[style], '0 0 200 200', 'hero-art'));
   const top = el('div','hero-top');
-  top.append(el('span','hero-source',['Мониторинг','Входящие','Рынок'][style]),el('span','position',String(selected+1).padStart(2,'0')+' / '+String(cards.length).padStart(2,'0')));
+  top.append(el('span','hero-source',['Почта и президентские гранты','Входящие','Рынок'][style]),el('span','position',String(selected+1).padStart(2,'0')+' / '+String(cards.length).padStart(2,'0')));
   hero.append(top,el('h2','',data.title || names[style]));
   const body = el('div','sheet-body'), meta = el('div','source-line');
   const sourceState = sourceStatuses[String(data.status || '').toLowerCase()] || data.status || 'Сводка источника';
@@ -148,7 +148,8 @@ function journalView(agent, open) {
   return journal;
 }
 function renderTeam() {
-  updatePreview(latest?.preview);
+  updatePreview(latest?.preview,latest?.previewKind);
+  $('view-video').textContent = latest?.previewKind === 'storyboard' ? 'Черновик с титрами · без озвучки' : 'Посмотреть готовый ролик';
   const lead = latest?.lead, agents = Array.isArray(latest?.agents) ? latest.agents : [];
   const viewKey = JSON.stringify([lead,agents,accessState]);
   if (lastAgents === viewKey) return;
@@ -182,10 +183,10 @@ function renderTeam() {
   if (focusId) [...$('agents').querySelectorAll('details')].find(node => node.dataset.id === focusId)?.querySelector('summary')?.focus({preventScroll:true});
   $('count').textContent = agents.length ? agents.filter(a => a.status==='WORKING').length+' в работе' : '';
 }
-let previewId, videoUrl;
-function updatePreview(id) {
-  if (id === previewId) return;
-  previewId = id;
+let previewId, previewKind, videoUrl;
+function updatePreview(id,kind) {
+  if (id === previewId && kind === previewKind) return;
+  previewId = id; previewKind = kind;
   const video = $('clip');
   video.removeAttribute('src'); video.load(); video.hidden = true;
   if (videoUrl) URL.revokeObjectURL(videoUrl);

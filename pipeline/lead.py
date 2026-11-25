@@ -115,12 +115,19 @@ def process(run, opts):
             script=json.loads((run/'script.json').read_text(encoding='utf-8'))
         else:
             script,_,_=stage('writer','Разобрать хук и написать оригинальные русские тексты',writer,'script.json')
-        if not (opts.resume and (run/'output.mp4').exists()):
-            media=stage('production','Создать озвучку, слайды и субтитры',lambda:assemble(run,script,
-                         lambda task,**kw:note('production','WORKING',task,**kw)),'output.mp4')
+        preview_only = not opts.narration and not (opts.resume and (run/'output.mp4').exists())
+        filename = 'storyboard.mp4' if preview_only else 'output.mp4'
+        if opts.narration or not (opts.resume and (run/filename).exists()):
+            media=stage('production','Смонтировать видеоряд и титры',lambda:assemble(run,script,
+                         lambda task,**kw:note('production','WORKING',task,**kw),opts.narration),filename)
             dump(run/'assembly.json',media)
-        note('lead','WORKING','Проверяет кодеки, длительность и декодирует каждый кадр','output.mp4','FFmpeg')
-        checked=validate(run)
+        note('lead','WORKING','Проверяет кодеки, длительность и декодирует каждый кадр',filename,'FFmpeg')
+        checked=validate(run,filename)
+        if preview_only:
+            dump(run/'storyboard-validation.json',checked)
+            note('distribution','IDLE','Ожидает фирменную звуковую дорожку')
+            note('lead','IDLE','Черновой монтаж с титрами готов. Ожидает озвучку канала.',filename,resources=checked)
+            return 0
         dump(run/'validation.json',checked)
         post={k:script[k] for k in ('title','description','telegram_text')}
         for key in ('contains_synthetic_media','made_for_kids'):
@@ -149,7 +156,8 @@ def process(run, opts):
 
 def main():
     parser=argparse.ArgumentParser()
-    parser.add_argument('--niche',required=True)
+    parser.add_argument('--niche',default='нейросети ChatGPT')
+    parser.add_argument('--narration',type=Path,help='Готовый аудиофайл канала для финального монтажа')
     parser.add_argument('--run-id',default=datetime.now(timezone.utc).strftime('%Y%m%d-%H%M%S')+'-'+uuid4().hex[:6])
     parser.add_argument('--max-subscribers',type=int,default=50000)
     parser.add_argument('--min-ratio',type=float,default=5.0)

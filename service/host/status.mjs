@@ -208,8 +208,9 @@ const server = createServer(async (req, res) => {
     }
     if (preview) {
       const folder = join(privateRuntime,'content',preview[1]);
-      const file = join(folder,'output.mp4');
-      const proof = await readFile(join(folder,'validation.json'),'utf8').then(JSON.parse).catch(() => null);
+      let proof = await readFile(join(folder,'validation.json'),'utf8').then(JSON.parse).catch(() => null);
+      const file = join(folder,proof ? 'output.mp4' : 'storyboard.mp4');
+      if (!proof) proof = await readFile(join(folder,'storyboard-validation.json'),'utf8').then(JSON.parse).catch(() => null);
       const info = await stat(file).catch(() => null);
       if (!info?.isFile() || !proof || proof.bytes !== info.size) return json(res,404,{error:'Черновик ещё не проверен'});
       const video = createReadStream(file);

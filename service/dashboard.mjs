@@ -1,9 +1,9 @@
-import { readdir, stat, open } from 'node:fs/promises';
+import { readdir, readFile, stat, open } from 'node:fs/promises';
 import { join } from 'node:path';
 import sources from './sources.cjs';
 
 const titles = { radar: 'Радар', mail: 'Почта', moex: 'MOEX' };
-const providers = { radar: 'OpenSky Network', mail: 'IMAP', moex: 'MOEX ISS' };
+const providers = { radar: 'Агент «Радар»', mail: 'IMAP', moex: 'MOEX ISS' };
 const names = {
   lead: 'ChatGPT Lead', research: 'Ресерчер', writer: 'Сценарист',
   production: 'Продакшн', distribution: 'Дистрибьютор',
@@ -66,8 +66,9 @@ async function agents(runtime) {
   }
   const { lead, ...workers } = team;
   lead.detail = goal || (run ? 'Запуск ' + run.id : 'Ожидает первого запуска');
-  const preview = run && lead.status === 'DONE' ? run.id : null;
-  return { lead, agents: Object.values(workers), preview };
+  const roughCut = lead.status === 'IDLE' && lead.file === 'storyboard.mp4';
+  const preview = run && (lead.status === 'DONE' || roughCut) ? run.id : null;
+  return { lead, agents: Object.values(workers), preview, previewKind: roughCut ? 'storyboard' : 'final' };
 }
 
 export function createDashboard(runtime) {
@@ -80,8 +81,8 @@ export function createDashboard(runtime) {
       .catch(() => {}).finally(() => pending.delete(id));
   }
   return async (state, refresh) => {
-    const list = Object.keys(titles).map(id => {
-      update(id, id === refresh);
+    const list = ['mail','moex'].map(id => {
+      update(id, id === refresh || (id === 'mail' && refresh === 'radar'));
       const value = cards.get(id);
       const card = { id, title: titles[id], source: providers[id], status: value?.status ?? 'loading',
         message: value?.message ?? 'Запрашиваем данные', updatedAt: value?.updatedAt ?? null,
@@ -98,7 +99,38 @@ export function createDashboard(runtime) {
       }
       return card;
     });
-    return { updatedAt: clock(), cards: list, ...await agents(runtime) };
+    const grants = await readFile(join(runtime,'grants','state.json'),'utf8').then(JSON.parse).catch(() => null);
+    const job = state.jobs?.grants;
+    const mail = list[0];
+    const working = job && job.phase !== 'idle' && job.phase !== 'blocked';
+    const grantsError = (grants?.errors?.length ?? 0) > 0 || job?.phase === 'blocked';
+    const mailReady = ['ok','empty'].includes(mail.status);
+    const summary = mailReady ? `В подборке: ${mail.items.length}` : mail.message;
+    const stamp = grants?.lastRunAt ?? null;
+    const rows = [{ label:'Почта', value:summary, detail:mail.updatedAt || '' }];
+    for (const [key,label] of [['bak','Бакалавриат и специалитет'],['mag','Магистратура']]) {
+      const record = grants?.snapshot?.[key];
+      rows.push({label, value:record?.available === true ? 'Список опубликован' :
+        record?.available === false ? 'Публикации пока нет' : 'Ожидает проверки',
+        detail:'Гранты Президента РФ · 2026/27'});
+    }
+    const task = working ? 'Проверяет публикации президентских грантов' :
+      grantsError ? 'Проверка грантов требует внимания' :
+      mail.status === 'unconfigured' ? 'Гранты проверены · ожидает подключения почты' :
+      mail.status === 'error' ? 'Не удалось проверить почту' : 'Почта и президентские гранты';
+    const radar = {id:'radar',name:'Радар',task,status:working ? 'WORKING' :
+      grantsError || mail.status === 'error' ? 'ERROR' : 'IDLE',
+      file:'grants/state.json',api:'Гранты Президента РФ' + (mailReady ? ' · IMAP' : ''),
+      tokens:0,resources:{'Проверки грантов':'09:00 / 21:00 ЕКБ'},events:[]};
+    if (stamp) radar.events.push({at:stamp,text:grantsError ? 'Часть источников грантов недоступна' : 'Проверены публикации по двум направлениям'});
+    if (mail.updatedAt) radar.events.push({at:mail.updatedAt,text:mail.message});
+    radar.events.sort((a,b)=>String(b.at).localeCompare(String(a.at)));
+    list.unshift({id:'radar',title:titles.radar,source:providers.radar,
+      status:grantsError ? 'error' : !stamp ? 'loading' : mailReady ? 'ok' : 'partial',
+      message:task,updatedAt:stamp,items:rows});
+    const team = await agents(runtime);
+    team.agents.push(radar);
+    return { updatedAt: clock(), cards: list, ...team };
   };
 }
 

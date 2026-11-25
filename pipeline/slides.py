@@ -63,7 +63,8 @@ def render(run, script):
     for i,s in enumerate(script['slides']):
         im=Image.new('RGB',(1080,1920),PAPER)
         d=ImageDraw.Draw(im)
-        d.text((84,110),'ПОЛЕВОЙ ЖУРНАЛ' if lunar else 'КОРОТКО О ГЛАВНОМ',font=font(31,True),fill=BLUE)
+        header = 'НЕЙРОСЕТИ  /  РАЗБОР ЗАПРОСА' if script.get('visual_theme')=='ai' else 'ПОЛЕВОЙ ЖУРНАЛ' if lunar else 'КОРОТКО О ГЛАВНОМ'
+        d.text((84,110),header,font=font(31,True),fill=BLUE)
         d.text((980,110),f'{i+1:02d} / {len(script["slides"]):02d}',anchor='ra',font=font(30),fill=INK)
         d.line((84,180,996,180),fill=INK,width=2)
         for n,line in enumerate(lines(d,s['headline'],font(82,True),890)):
@@ -72,7 +73,14 @@ def render(run, script):
         for x in range(110,1000,55):
             for y in range(680,1200,55):
                 d.ellipse((x,y,x+2,y+2),fill='#54645A')
-        if lunar and i in (0,3,4):
+        if script.get('visual_theme')=='ai' and len(s.get('panel',[]))==4:
+            for j in range(2):
+                y = 685 + j*273
+                d.text((116,y),s['panel'][j*2],font=font(31,True),fill='#A9D9B6')
+                for line_no,line in enumerate(lines(d,s['panel'][j*2+1],font(45),827)):
+                    d.text((116,y+52+line_no*58),line,font=font(45),fill='#F6F0DE')
+            d.line((116,942,961,942),fill='#4E6959',width=2)
+        elif lunar and i in (0,3,4):
             im.paste(full,(128,723),full); im.paste(half,(587,723),half)
             for x,label in [(310,'ПОЛНОЛУНИЕ'),(767,'ПОСЛЕДНЯЯ ЧЕТВЕРТЬ')]:
                 d.text((x,1123),label,anchor='ma',font=font(24,True),fill='#F4D489')

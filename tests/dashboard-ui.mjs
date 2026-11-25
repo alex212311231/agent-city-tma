@@ -16,7 +16,7 @@ const cards = [
   {id:'moex',title:'MOEX',status:'ready',items:[{label:'SBER',value:'295,74',detail:'+0,3%'}]},
 ];
 const fixture = {cards,lead:{name:'ChatGPT Lead',status:'WORKING',task:'Проверяет ролик'},agents:[
-  {id:'media',name:'Продакшн',status:'WORKING',task:'Собирает титры',file:'output.mp4',api:'edge-tts',tokens:0,resources:{seconds:42},events:[{at:'2026-01-01T09:00:00Z',text:'Сборка началась'}]},
+  {id:'media',name:'Продакшн',status:'WORKING',task:'Собирает титры',file:'output.mp4',api:'FFmpeg',tokens:0,resources:{seconds:42},events:[{at:'2026-01-01T09:00:00Z',text:'Сборка началась'}]},
 ]};
 try {
   for (const mobile of [false,true]) {
@@ -56,7 +56,7 @@ try {
     assert.ok(await page.locator('#saved').isHidden());
     await page.locator('#team-tab').click();
     assert.match(await page.locator('#lead').innerText(),/Проверяет ролик/);
-    for (const text of ['output.mp4','edge-tts','Сборка началась','Токены 0']) assert.match(await page.locator('#agents').innerText(),new RegExp(text));
+    for (const text of ['output.mp4','FFmpeg','Сборка началась','Токены 0']) assert.match(await page.locator('#agents').innerText(),new RegExp(text));
     assert.ok(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth));
     await page.locator('#data-tab').click();
     assert.equal(new Set(loaded).size,4);

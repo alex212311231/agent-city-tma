@@ -2,7 +2,6 @@
 
 
 
-const decimal = new Intl.NumberFormat('ru-RU', { maximumFractionDigits: 2 });
 const rubles = new Intl.NumberFormat('ru-RU', { style: 'currency', currency: 'RUB' });
 const percent = new Intl.NumberFormat('ru-RU', {
   style: 'percent', maximumFractionDigits: 2, signDisplay: 'exceptZero',
@@ -21,32 +20,6 @@ async function json(url) {
   if (response.status === 429) throw new SourceError('Источник ограничил частоту запросов.');
   if (!response.ok) throw new Error('Source request failed.');
   return response.json();
-}
-
-async function radar() {
-  const [south, west, north, east] = (process.env.AI_HUB_RADAR_BBOX || '54.9,58,58,63').split(',').map(Number);
-  if (!(south >= -90 && north <= 90 && south < north && west >= -180 && east <= 180 && west < east)) {
-    throw new SourceError('Проверьте настройки региона радара.');
-  }
-  const url = new URL('https://opensky-network.org/api/states/all');
-  url.search = new URLSearchParams({ lamin: south, lomin: west, lamax: north, lomax: east });
-  const data = await json(url);
-  if (!Number.isFinite(data.time)) throw new Error('Invalid radar response.');
-  const aircraft = (data.states || []).filter((state) => state[8] === false);
-  aircraft.sort((a, b) => (b[4] ?? 0) - (a[4] ?? 0));
-  const rows = aircraft.slice(0, 5).map((state) => ({
-    title: state[1]?.trim() || state[0].toUpperCase(),
-    detail: state[2],
-    value: Number.isFinite(state[7]) ? decimal.format(state[7]) + ' м' : '—',
-  }));
-  return {
-    status: rows.length ? 'ok' : 'empty',
-    message: rows.length
-      ? 'Бортов в воздухе по данным OpenSky — ' + aircraft.length + '. Показаны последние сигналы.'
-      : 'OpenSky сейчас не видит бортов в выбранном регионе.',
-    updatedAt: new Date(data.time * 1000).toISOString(),
-    rows,
-  };
 }
 
 function blockRows(block) {
@@ -145,7 +118,6 @@ async function mail() {
 }
 
 const loaders = {
-  radar: { load: radar, ttl: 300000, refreshAfter: 60000, unavailable: 'OpenSky временно недоступен.' },
   mail: { load: mail, ttl: 90000, refreshAfter: 30000, unavailable: 'Не удалось прочитать входящие по IMAP.' },
   moex: { load: moex, ttl: 60000, refreshAfter: 20000, unavailable: 'MOEX ISS временно недоступен.' },
 };
