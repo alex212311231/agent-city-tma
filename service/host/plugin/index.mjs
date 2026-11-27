@@ -1,4 +1,5 @@
 import { createHash, randomUUID } from 'node:crypto';
+import { limitsText } from '../usage-limits.mjs';
 import { activeJob, agentNames, decide, getMode, modeButtons, modes, officeFetch, readJob, requestStop, sendMenu, setMode, telegram } from '../team-control.mjs';
 
 function ownerSender(value) {
@@ -38,7 +39,16 @@ async function submit(api, task, requestId) {
 }
 
 const time = value => value ? new Date(value).toLocaleString('ru-RU', { timeZone: 'Asia/Yekaterinburg' }) : '—';
-const commandPattern = /^\/(status|team|stop|build|b)(?:@ClaudeNFications_bot)?(?:\s+(.*))?$/isu;
+const commandPattern = /^\/(status|team|stop|build|b|panel|limits|help|start)(?:@ClaudeNFications_bot)?(?:\s+(.*))?$/isu;
+const buttons = new Map([['📊 Панель','panel'],['⏱ Лимиты','limits'],['❔ Помощь','help']]);
+const keyboard = {keyboard:[[{text:'📊 Панель'},{text:'⏱ Лимиты'}],[{text:'❔ Помощь'}]],resize_keyboard:true};
+const help = 'Панель — сводка агентов, почты и грантов.\nЛимиты — остаток Codex и время обновления.\n/build или обычное сообщение — поручение в твою беседу Codex.\n/team — режим команды.';
+async function answer(text, markup) {
+  try {
+    await telegram('sendMessage',{text,...(markup ? {reply_markup:markup} : {}),link_preview_options:{is_disabled:true}});
+    return {handled:true};
+  } catch { return {handled:true,text}; }
+}
 
 export async function statusText() {
   const [current, mode, office, dashboard] = await Promise.all([
@@ -107,11 +117,17 @@ export default {
       const message = event.content ?? event.body ?? '';
       if ((context.channelId ?? event.channel) !== 'telegram' || event.isGroup ||
           !ownerSender(context.senderId ?? event.senderId) || (context.conversationId && !ownerSender(context.conversationId))) return;
-      const command = commandPattern.exec(message);
+      const normalized = message.replace(/\uFE0F/g,'').trim();
+      const command = commandPattern.exec(normalized);
+      const action = buttons.get(normalized) ?? command?.[1]?.toLowerCase();
       let reply;
-      if (command) {
-        switch (command[1].toLowerCase()) {
-          case 'status': reply = await statusText(); break;
+      if (action) {
+        switch (action) {
+          case 'status':
+          case 'panel': return answer(await statusText(), {inline_keyboard:[[{text:'Открыть Mini App',web_app:{url:'https://alex212311231.github.io/agent-city-tma/'}}]]});
+          case 'limits': return answer(await limitsText());
+          case 'start':
+          case 'help': return answer(help,keyboard);
           case 'team': reply = await showMenu(api); break;
           case 'stop': reply = await requestStop() ? 'Запрошена остановка задания.' : 'Нет активного задания.'; break;
           default: reply = await submit(api, message, messageRequestId(context.messageId ?? event.messageId));
@@ -119,7 +135,7 @@ export default {
       } else if (message.trim() && !message.trimStart().startsWith('/')) {
         reply = await submit(api, message, messageRequestId(context.messageId ?? event.messageId));
       } else return;
-      return reply ? { handled: true, text: reply } : { handled: true };
+      return reply ? answer(reply) : { handled: true };
     }, { timeoutMs: 38000 });
 
     api.registerInteractiveHandler({
